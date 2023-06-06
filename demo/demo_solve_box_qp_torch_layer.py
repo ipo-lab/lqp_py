@@ -34,7 +34,7 @@ print('computation time: {:f}'.format(end))
 dl_dz = torch.ones((n_batch, n_x, 1))
 
 start = time.time()
-test = x.backward(dl_dz)  # --- slower because updating grads?
+test = x.backward(dl_dz)
 end = time.time() - start
 print('computation time: {:f}'.format(end))
 
@@ -54,7 +54,7 @@ print('computation time: {:f}'.format(end))
 dl_dz = torch.ones((n_batch, n_x, 1))
 
 start = time.time()
-test = x.backward(dl_dz)  # --- slower because updating grads?
+test = x.backward(dl_dz)
 end = time.time() - start
 print('computation time: {:f}'.format(end))
 
@@ -73,6 +73,6 @@ print('computation time: {:f}'.format(end))
 dl_dz = torch.ones((n_batch, n_x, 1))
 
 start = time.time()
-test = x.backward(dl_dz)  # --- slower because updating grads
+test = x.backward(dl_dz)
 end = time.time() - start
 print('computation time: {:f}'.format(end))
