@@ -15,7 +15,7 @@ To use the ADMM solver you will need to install [numpy](https://numpy.org) and [
 Please see requirements.txt for full build details.
 
 ## Runtime Experiments:
-The [demo](demo) directory contains simple demos for forward solving and backward differentiating through the ADMM solver.The following runtime experiments are available in the [experiments](experiments) directory.
+The [demo](demo) directory contains simple demos for forward solving and backward differentiating through the ADMM solver. The following runtime experiments are available in the [experiments](experiments) directory.
 
 All experiments are conducted on an Apple Mac Pro computer (2.6 GHz 6-Core Intel Core i7,32 GB 2667 MHz DDR4) running macOS ‘Monterey’.
 
