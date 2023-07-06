@@ -40,7 +40,7 @@ Runtime: dz = 500            |  Convergence: dz = 500
 :-------------------------:|:-------------------------:
 ![runtime dz 500](/images/exp_2_n_500.png)  |  ![convergence dz 500](/images/exp_2_n_500_conv.png)
 
-Training loss and computational performance for learning p. Problem setup: dz = 500, batch size = 32, epochs = 30, and stopping tolerance = 10^-5.
+Training loss and computational performance for learning p. Problem setup: dz = 500, batch size = 32, epochs = 100, and stopping tolerance = 10^-5.
 
 ## Notes: Limitations and Future Improvements
 
