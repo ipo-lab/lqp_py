@@ -178,7 +178,9 @@ def torch_solve_qp_scs_grads(dl_dx, x, lams, slacks, Q, A, G):
     dl_dp = dx
 
     # --- dl_dQ
-    dl_dQ = 0.5 * (torch.matmul(dx, xt) + torch.matmul(x, dxt))
+    #dl_dQ = 0.5 * (torch.matmul(dx, xt) + torch.matmul(x, dxt))
+    dl_dQ1 = torch.matmul(0.50 * dx, xt)
+    dl_dQ = dl_dQ1 + torch.transpose(dl_dQ1, 1, 2)
 
     # --- dl_dAmat:
     dl_dAmat = torch.matmul(lams, dxt) - torch.matmul(dy, xt)
