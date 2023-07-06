@@ -9,10 +9,11 @@ n_x = 1000
 n_batch = 128
 n_samples = 2 * n_x
 tol = 10**-6
-L = torch.randn(n_batch, n_samples, n_x, requires_grad=True)
+L = torch.randn(n_batch, n_samples, n_x)
 
 Q = torch.matmul(torch.transpose(L, 1, 2), L)
 Q = Q / n_samples
+Q.requires_grad = True
 p = torch.randn(n_batch, n_x, 1, requires_grad=True)
 A = torch.ones(n_batch, 1, n_x, requires_grad=True)
 b = torch.ones(n_batch, 1, 1, requires_grad=True)
@@ -37,7 +38,6 @@ start = time.time()
 test = x.backward(dl_dz)
 end = time.time() - start
 print('computation time: {:f}'.format(end))
-
 
 
 # --- QP solver: KKT
