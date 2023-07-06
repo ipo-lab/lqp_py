@@ -395,7 +395,9 @@ def torch_optnet_grads(dl_dz, x, lams, slacks, nus, Q, A, G, U_Q, U_S):
     dl_dp = dx
 
     # --- dl_dQ
-    dl_dQ = 0.5 * (torch.matmul(dx, xt) + torch.matmul(x, dxt))
+    #dl_dQ = 0.5 * (torch.matmul(dx, xt) + torch.matmul(x, dxt))
+    dl_dQ1 = torch.matmul(0.50 * dx, xt)
+    dl_dQ = dl_dQ1 + torch.transpose(dl_dQ1, 1, 2)
 
     # --- inequality
     dl_dG = None
