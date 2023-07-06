@@ -248,12 +248,9 @@ def torch_solve_box_qp_grad(dl_dz, x, u, lams, nus, Q, A, lb, ub, rho):
         rhs = -dl_dx
 
     # --- this section here can be optimized for speed.
-    Id_x = torch.eye(n_x).unsqueeze(0)
-    Q_I = Q + rho * Id_x
-    # dP_dv = torch.diag_embed(dpi_dx.squeeze(2))
-    tl = -rho * torch.diag_embed((2 * dpi_dx - 1).squeeze(2))  # (2 * dP_dv - Id_x)
-
-    lhs = dpi_dx * Q_I + tl
+    lhs = dpi_dx * Q
+    diag = lhs.diagonal(dim1=1, dim2=2) + rho * (1 - dpi_dx.squeeze(2))
+    lhs[:, range(n_x), range(n_x)] = diag
     if any_eq:
         bottom_right = torch.zeros((n_batch, n_eq, n_eq))
         AT = torch.transpose(A, 1, 2)
@@ -261,25 +258,7 @@ def torch_solve_box_qp_grad(dl_dz, x, u, lams, nus, Q, A, lb, ub, rho):
         lhs_l = torch.cat((A, bottom_right), 2)
         lhs = torch.cat((lhs_u, lhs_l), 1)
 
-    # Id_x = torch.eye(n_x).unsqueeze(0)
-    # Q_I = Q + rho * Id_x
-    # dP_dv = torch.diag_embed(dpi_dx.squeeze(2))
-    # tl = -rho * (2 * dP_dv - torch.eye(n_x))# ? torch.diag_embed((2*dpi_dx - 1).squeeze(2))
-    # zero = torch.zeros((n_batch, n_eq, n_x))
-    # if any_eq:
-    #    Id_eq = torch.eye(n_eq).unsqueeze(0)
-    #    Id_eq = Id_eq * torch.ones((n_batch, 1, 1))
-    #    mat = torch_qp_eqcon_mat(Q=Q_I, A=A)# torch cat is very slow for large tensors
-    #    D = torch_qp_eqcon_mat(tl, zero)
-    #    R_mat = torch_qp_eqcon_mat(dP_dv, zero, bottom_right=Id_eq)
-    # else:
-    #    mat = Q_I
-    #    D = tl
-    #    R_mat = dP_dv
-
-    # R = torch.diagonal(R_mat, dim1=1, dim2=2)
-    # lhs = R.unsqueeze(2) * mat + D
-
+    # --- main system solve -- optimize here?
     d_vec_2 = torch.linalg.solve(lhs, rhs)
 
     # --- from here
@@ -289,8 +268,9 @@ def torch_solve_box_qp_grad(dl_dz, x, u, lams, nus, Q, A, lb, ub, rho):
     # --- dl_dp
     dl_dp = dv
 
-    # --- dl_dQ
-    dl_dQ = 0.5 * (torch.matmul(dv, xt) + torch.matmul(x, dvt))
+    # --- dl_dQ dl_dQ = 0.5 * (torch.matmul(dv, xt) + torch.matmul(x, dvt))
+    dl_dQ1 = torch.matmul(0.50 * dv, xt)
+    dl_dQ = dl_dQ1 + torch.transpose(dl_dQ1, 1, 2)
 
     # --- dl_dA and dl_db
     dl_db = None
@@ -425,7 +405,9 @@ def torch_qp_int_grads(x, lams, nus, dx, dlam, dnu):
     dl_dp = dx
 
     # --- dl_dQ
-    dl_dQ = 0.5 * (torch.matmul(dx, xt) + torch.matmul(x, dxt))
+    #dl_dQ = 0.5 * (torch.matmul(dx, xt) + torch.matmul(x, dxt))
+    dl_dQ1 = torch.matmul(0.50 * dx, xt)
+    dl_dQ = dl_dQ1 + torch.transpose(dl_dQ1, 1, 2)
 
     # --- inequality
     dl_dG = None
