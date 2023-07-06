@@ -11,12 +11,12 @@ import matplotlib.pyplot as plt
 # --- create problem data
 n_x = 500
 n_features = 5
-learning_rate = 0.001
+learning_rate = 0.0005
 n_batch = 128
 n_samples = 2*n_x
 n_sims = 10
 tol = 10**-5
-n_epochs = 30
+n_epochs = 100
 n_mini_batch = 32
 # --- models:
 model_names = ['ADMM_FP','OptNet']
