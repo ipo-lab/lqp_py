@@ -20,15 +20,15 @@ The [demo](demo) directory contains simple demos for forward solving and backwar
 All experiments are conducted on an Apple Mac Pro computer (2.6 GHz 6-Core Intel Core i7,32 GB 2667 MHz DDR4) running macOS ‘Monterey’.
 
 ### Experiment 1:
-Runtime: dz = 10            |  Convergence: dz = 50    
+Runtime: dz = 10            |  Runtime: dz = 50    
 :-------------------------:|:-------------------------:
 ![runtime dz 10](/images/exp_1_n_10.png)  |  ![runtime dz 50](/images/exp_1_n_50.png)
 
-Runtime: dz = 100            |  Convergence: dz = 250    
+Runtime: dz = 100            |  Runtime: dz = 250    
 :-------------------------:|:-------------------------:
 ![runtime dz 100](/images/exp_1_n_100.png)  |  ![runtime dz 250](/images/exp_1_n_250.png)
 
-Runtime: dz = 500            |  Convergence: dz = 1000    
+Runtime: dz = 500            |  Runtime: dz = 1000    
 :-------------------------:|:-------------------------:
 ![runtime dz 500](/images/exp_1_n_500.png)  |  ![runtime dz 1000](/images/exp_1_n_1000.png)
 
