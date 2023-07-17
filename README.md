@@ -48,8 +48,10 @@ Training loss and computational performance for learning p. Problem setup: dz = 
 
 2. Computational performance may differ from exactly what is reported in the paper. In our experience, computational speed seems to be dependent on the hardware, language (Python or R) and package versions used for computations. Importantly, for large problems (number of decision variables > 500 and batch size > 64) the RAM consumption will cause a considerable slowdown. Making the forward and backward routines more memory efficient is a high priority.
 
-3. When using ADMM solver, it is important that the QP variables are properly scaled and that the ADMM parameter (rho) is set appropriately. Automatic scaling and parameter selection is not currently implemented. We recommend that the user experiment with the scale of the QP input variables for their particular use-case.
+3. When using ADMM solver, it is important that the QP variables are properly scaled and that the ADMM parameter (rho) is set appropriately. The ADMM solver now supports automatic scaling and parameter selection.
+  * `scale=True`: automatic scaling of problem data.
+  * `rho=None`: automatic rho selection.
+  * `adaptive_rho=True`: dynamically tune rho based on primal/dual residuals.  
+Automatic scaling and parameter selection is a realtively new feature. If convergence is slow then we recommend that the user experiment with the scale of the QP input variables and manually scale the data for their particular use-case.
 
 4. Convergence of ADMM (and first-older solvers in general) can slow down if the matrix Q is rank deficient. We are currently exploring acceleration methods to improve  convergence for rank deficient Q cases.
-
-5. For larger scale batch QPs (number of decision variables > 500 and batch size > 64), solving the linear system in the backward pass can be slow. We are currently exploring approximation methods for efficiently solving the backward linear system.
