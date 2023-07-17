@@ -52,6 +52,7 @@ Training loss and computational performance for learning p. Problem setup: dz = 
   * `scale=True`: automatic scaling of problem data.
   * `rho=None`: automatic rho selection.
   * `adaptive_rho=True`: dynamically tune rho based on primal/dual residuals.  
-Automatic scaling and parameter selection is a realtively new feature. If convergence is slow then we recommend that the user experiment with the scale of the QP input variables and manually scale the data for their particular use-case.
+  
+Automatic scaling and parameter selection is a relatively new feature. If convergence is slow then we recommend that the user experiment with the scale of the QP input variables and manually scale the data for their particular use-case.
 
 4. Convergence of ADMM (and first-older solvers in general) can slow down if the matrix Q is rank deficient. We are currently exploring acceleration methods to improve  convergence for rank deficient Q cases.
