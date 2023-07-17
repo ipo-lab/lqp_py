@@ -2,9 +2,9 @@ import numpy as np
 import torch
 
 
-def torch_uniform(*size,lower=0, upper=1):
+def torch_uniform(*size, lower=0, upper=1):
     r = torch.rand(*size)
-    r = r*(upper-lower) + lower
+    r = r * (upper - lower) + lower
     return r
 
 
@@ -31,27 +31,32 @@ def create_qp_data(n_x, n_batch, n_samples, seed=0, requires_grad=True):
     return Q, p, A, b, lb, ub, G, h
 
 
-def generate_random_qp(n_x, m, prob, seed):
+def generate_hard_qp(n_x, prob, seed):
     np.random.seed(seed)
     M = np.random.normal(size=(n_x, n_x))
     M = M * np.random.binomial(1, prob, size=(n_x, n_x))
     # --- Q:
-    Q = np.dot(M.T, M) + 10 ** -2 * np.eye(n_x)
+    Q = np.dot(M.T, M) + 1e-2 * np.eye(n_x)
     # --- p:
     p = np.random.normal(size=(n_x, 1))
+    # --- x0:
+    x0 = np.random.normal(size=(n_x, 1))
+    s_lb = -np.random.uniform(size=(n_x, 1))
+    s_ub = np.random.uniform(size=(n_x, 1))
     # --- A:
-    A = generate_random_A(n_x=n_x, m=m, prob=prob)
+    A = generate_random_A(n_x=n_x, prob=prob)
     # --- b:
-    b = np.random.uniform(size=(A.shape[0], 1))
+    b = np.matmul(A, x0)
     # --- ub:
-    ub = np.random.uniform(size=(n_x, 1))
+    ub = x0 + s_ub
     # --- lb:
-    lb = -np.random.uniform(size=(n_x, 1))
+    lb = x0 + s_lb
     return Q, p, A, b, lb, ub
 
 
-def generate_random_qp_torch(n_x, m, prob, seeds):
+def generate_hard_qp_torch(n_x, prob, seeds, dtype=torch.float64):
     n_batch = len(seeds)
+    m = round(n_x ** 0.5)
     Q = np.zeros((n_batch, n_x, n_x))
     p = np.zeros((n_batch, n_x, 1))
     A = np.zeros((n_batch, m, n_x))
@@ -59,7 +64,7 @@ def generate_random_qp_torch(n_x, m, prob, seeds):
     lb = np.zeros((n_batch, n_x, 1))
     ub = np.zeros((n_batch, n_x, 1))
     for i in range(n_batch):
-        Q_i, p_i, A_i, b_i, lb_i, ub_i = generate_random_qp(n_x=n_x, m=m, prob=prob, seed=seeds[i])
+        Q_i, p_i, A_i, b_i, lb_i, ub_i = generate_hard_qp(n_x=n_x, prob=prob, seed=seeds[i])
         Q[i, :, :] = Q_i
         p[i, :, :] = p_i
         A[i, :, :] = A_i
@@ -67,17 +72,23 @@ def generate_random_qp_torch(n_x, m, prob, seeds):
         lb[i, :, :] = lb_i
         ub[i, :, :] = ub_i
 
-    Q = torch.as_tensor(Q, dtype=torch.float64)
-    p = torch.as_tensor(p, dtype=torch.float64)
-    A = torch.as_tensor(A, dtype=torch.float64)
-    b = torch.as_tensor(b, dtype=torch.float64)
-    lb = torch.as_tensor(lb, dtype=torch.float64)
-    ub = torch.as_tensor(ub, dtype=torch.float64)
-    return Q, p, A, b, lb, ub
+    Q = torch.tensor(Q, dtype=dtype, requires_grad=True)
+    p = torch.tensor(p, dtype=dtype,  requires_grad=True)
+    A = torch.tensor(A, dtype=dtype,  requires_grad=True)
+    b = torch.tensor(b, dtype=dtype,  requires_grad=True)
+    lb = torch.tensor(lb, dtype=dtype,  requires_grad=True)
+    ub = torch.tensor(ub, dtype=dtype,  requires_grad=True)
+    # --- add G, h
+    G = torch.cat((-torch.eye(n_x, dtype=dtype), torch.eye(n_x, dtype=dtype)))
+    G = G.unsqueeze(0) * torch.ones(n_batch, 1, 1, dtype=dtype)
+    h = torch.cat((-lb, ub), dim=1)
+
+    return Q, p, A, b, lb, ub, G, h
 
 
-def generate_random_A(n_x, m, prob):
+def generate_random_A(n_x, prob):
     # --- A:
+    m = round(n_x ** 0.5)
     A = np.zeros((m, n_x))
     for i in range(m):
         a = np.random.normal(size=(1, n_x))
