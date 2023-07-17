@@ -1,5 +1,4 @@
 import numpy as np
-from lqp_py.utils import make_matrix
 
 
 def solve_qp_uncon(Q, p,):
@@ -11,11 +10,6 @@ def solve_qp_uncon(Q, p,):
     # p:  A (n_eq,1) matrix.
     # Returns: x_star:  A (n_x) matrix
     #######################################################################
-
-    # ---- prep
-    Q = make_matrix(Q)
-    p = make_matrix(p)
-
     x = np.linalg.solve(Q, -p)
     sol = {"x": x}
     return sol

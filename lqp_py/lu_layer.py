@@ -30,7 +30,6 @@ class TorchLULayer(torch.autograd.Function):
             with torch.no_grad():
                 LU, P = torch.linalg.lu_factor(A)
 
-
         x = torch.linalg.lu_solve(LU, P, b)
 
         # --- save for backwards:
@@ -51,7 +50,7 @@ class TorchLULayer(torch.autograd.Function):
         else:
             xt = torch.transpose(x, 1, 2)
         dx = torch.linalg.lu_solve(LU, P, -dl_dx)
-        dl_dA = torch.matmul(dx,xt)
+        dl_dA = torch.matmul(dx, xt)
         dl_db = -dx
 
         grads = (dl_dA, dl_db, None, None)

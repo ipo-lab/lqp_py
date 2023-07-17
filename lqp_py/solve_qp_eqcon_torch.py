@@ -1,9 +1,8 @@
 import torch
-import numpy as np
 from lqp_py.utils import get_ncon, torch_qp_eqcon_mat
 from lqp_py.solve_qp_uncon_torch import torch_solve_qp_uncon
 
-# --- will add call to unconstrained solver here...
+
 def torch_solve_qp_eqcon(Q, p, A, b,):
     #######################################################################
     # Solve a QP in form:
@@ -20,16 +19,14 @@ def torch_solve_qp_eqcon(Q, p, A, b,):
     any_eq = n_eq > 0
     if any_eq:
         n_x = p.shape[1]
-        idx_x = np.arange(0, n_x)
-        idx_eq = np.arange(n_x, n_x + n_eq)
         # --- setup and solve system
         rhs = torch.cat((-p, b), 1)
         lhs = torch_qp_eqcon_mat(Q=Q, A=A)
         xv = torch.linalg.solve(lhs, rhs)
 
         # --- unpack solution:
-        x = xv[:, idx_x, :]
-        nus = xv[:, idx_eq, :]
+        x = xv[:, :n_x, :]
+        nus = xv[:, -n_eq:, :]
         sol = {"x": x, "nus": nus}
     else:
         sol = torch_solve_qp_uncon(Q=Q, p=p)
@@ -40,11 +37,12 @@ def torch_solve_qp_eqcon(Q, p, A, b,):
 def torch_solve_qp_eqcon_grad(dl_dz, x, nus, Q, A):
     # --- prep:
     n_batch = Q.shape[0]
+    dtype = Q.dtype
     n_eq = get_ncon(A, dim=1)
     any_eq = n_eq > 0
 
     # --- sol:
-    zeros = torch.zeros((n_batch, n_eq, 1))
+    zeros = torch.zeros((n_batch, n_eq, 1), dtype = dtype)
     sol = torch_solve_qp_eqcon(Q=Q, p=dl_dz, A=A, b=zeros)
 
     dx = sol.get('x')

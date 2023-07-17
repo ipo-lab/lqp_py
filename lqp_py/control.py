@@ -1,29 +1,36 @@
-def box_qp_control(max_iters=1000, eps_abs=0.001, eps_rel=0.001, check_termination=1,
-                   rho=1, verbose=False, scaling_iter=0, aa_iter=0, reduce='max',
-                   unroll=False, backward='fixed_point'):
+def box_qp_control(max_iters=10_000, eps_abs=1e-3, eps_rel=1e-3, check_solved=None,
+                   rho=None, rho_min=1e-6, rho_max=1e6, adaptive_rho=True, adaptive_rho_tol=10,
+                   adaptive_rho_iter=100, adaptive_rho_max_iter=1000, verbose=False, scale=True,
+                   unroll=False, backward='fixed_point', **kwargs):
     control = {"max_iters": max_iters,
                "eps_abs": eps_abs,
                "eps_rel": eps_rel,
-               "check_terimnation": check_termination,
+               "check_terimnation": check_solved,
                "rho": rho,
+               "rho_min": rho_min,
+               "rho_max": rho_max,
+               "adaptive_rho": adaptive_rho,
+               "adaptive_rho_tol": adaptive_rho_tol,
+               "adaptive_rho_iter": adaptive_rho_iter,
+               "adaptive_rho_max_iter": adaptive_rho_max_iter,
                "verbose": verbose,
-               "scaling_iter": scaling_iter,
-               "aa_iter": aa_iter,
-               "reduce": reduce,
+               "scale": scale,
                "unroll": unroll,
                "backward": backward
                }
+    control.update(**kwargs)
     return control
 
 
-def optnet_control(max_iters=10, tol=0.001, check_termination=1, verbose=False, reduce='max', int_reg=10 ** -6):
+def optnet_control(max_iters=10, tol=1e-3, check_solved=1, verbose=False, reduce='max', int_reg=1e-6,  **kwargs):
     control = {"max_iters": max_iters,
                "tol": tol,
-               "check_terimnation": check_termination,
+               "check_terimnation": check_solved,
                "verbose": verbose,
                "reduce": reduce,
                "int_reg": int_reg
                }
+    control.update(**kwargs)
     return control
 
 
@@ -44,7 +51,8 @@ def scs_control(use_indirect=False,
                 acceleration_interval=10,
                 time_limit_secs=0,
                 write_data_filename=None,
-                log_csv_filename=None):
+                log_csv_filename=None,
+                **kwargs):
     control = {"use_indirect": use_indirect,
                "mkl": mkl,
                "gpu": gpu,
@@ -63,5 +71,5 @@ def scs_control(use_indirect=False,
                "time_limit_secs": time_limit_secs,
                "write_data_filename": write_data_filename,
                "log_csv_filename": log_csv_filename}
-
+    control.update(**kwargs)
     return control

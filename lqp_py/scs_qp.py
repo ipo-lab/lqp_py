@@ -122,14 +122,11 @@ def torch_solve_qp_scs_grads(dl_dx, x, lams, slacks, Q, A, G):
     # --- prep:
     n_batch = Q.shape[0]
     n_x = Q.shape[1]
+    dtype = Q.dtype
     n_eq = get_ncon(A, dim=1)
     any_eq = n_eq > 0
     n_ineq = get_ncon(G, dim=1)
     n_con = n_eq + n_ineq
-    idx_x = np.arange(0, n_x)
-    idx_con = np.arange(n_x, n_x + n_con)
-    idx_eq = np.arange(0, n_eq)
-    idx_ineq = np.arange(n_eq, n_con)
 
     # --- init: w
     w = torch.cat((x, lams - slacks), dim=1)
@@ -142,33 +139,25 @@ def torch_solve_qp_scs_grads(dl_dx, x, lams, slacks, Q, A, G):
 
     # --- M matrix:
     lhs_u = torch.cat((Q, torch.transpose(Amat, 1, 2)), 2)
-    lhs_l = torch.cat((-Amat, torch.zeros(n_batch, n_con, n_con)), 2)
+    lhs_l = torch.cat((-Amat, torch.zeros(n_batch, n_con, n_con, dtype=dtype)), 2)
     M = torch.cat((lhs_u, lhs_l), 1)
-    I = torch.eye(n_x + n_con).unsqueeze(0)
-
-    # --- gc:
-    lhs_u = None
-    lhs_l = None
+    I = torch.eye(n_x + n_con, dtype=dtype).unsqueeze(0)
 
     # --- Derivative of euclidean projection operator:
-    idx = np.arange(n_x + n_eq, n_x + n_eq + n_ineq)
-    w_y = w[:, idx, :]
+    w_y = w[:, (n_x + n_eq):(n_x + n_eq + n_ineq), :]
     D_w_y = 0.5 * (torch.sign(w_y) + 1)
-    ones = torch.ones((n_batch, n_x + n_eq, 1))
+    ones = torch.ones((n_batch, n_x + n_eq, 1), dtype=dtype)
     D = torch.cat((ones, D_w_y), 1)
 
     # --- Core system of Equations:
-    rhs = torch.cat((-dl_dx, torch.zeros((n_batch, n_con, 1))), dim=1)
+    rhs = torch.cat((-dl_dx, torch.zeros((n_batch, n_con, 1), dtype=dtype)), dim=1)
     rhs = D * rhs
     mat = M * torch.transpose(D, 1, 2) - torch.diag_embed(D.squeeze(2)) + I + 10 ** -8 * I
 
     d = torch.linalg.solve(torch.transpose(mat, 1, 2), rhs)
-    # --- gc:
-    mat = None
-
     # --- d:
-    dx = d[:, idx_x, :]
-    dy = d[:, idx_con, :]
+    dx = d[:, :n_x, :]
+    dy = d[:, n_x:(n_x + n_con), :]
 
     # --- gradients:
     xt = torch.transpose(x, 1, 2)
@@ -178,7 +167,6 @@ def torch_solve_qp_scs_grads(dl_dx, x, lams, slacks, Q, A, G):
     dl_dp = dx
 
     # --- dl_dQ
-    #dl_dQ = 0.5 * (torch.matmul(dx, xt) + torch.matmul(x, dxt))
     dl_dQ1 = torch.matmul(0.50 * dx, xt)
     dl_dQ = dl_dQ1 + torch.transpose(dl_dQ1, 1, 2)
 
@@ -188,10 +176,10 @@ def torch_solve_qp_scs_grads(dl_dx, x, lams, slacks, Q, A, G):
     dl_dA = None
     dl_db = None
     if any_eq:
-        dl_dA = dl_dAmat[:, idx_eq, :]
-        dl_db = dy[:, idx_eq, :]
-        dl_dG = dl_dAmat[:, idx_ineq, :]
-        dl_dh = dy[:, idx_ineq, :]
+        dl_dA = dl_dAmat[:, :n_eq, :]
+        dl_db = dy[:, :n_eq, :]
+        dl_dG = dl_dAmat[:, n_eq:n_con, :]
+        dl_dh = dy[:, n_eq:n_con, :]
     else:
         dl_dh = dy
         dl_dG = dl_dAmat

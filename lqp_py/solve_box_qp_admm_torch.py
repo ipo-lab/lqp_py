@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-import numpy as np
 from lqp_py.utils import get_ncon
 from lqp_py.lu_layer import TorchLU
 
@@ -44,9 +43,10 @@ class SolveBoxQPLayer(torch.autograd.Function):
         u = sol.get('u')
         lams = sol.get('lams')
         nus = sol.get('nus')
+        rho = sol.get('rho')
 
         # --- save for backwards:
-        ctx.rho = control.get('rho')
+        ctx.rho = rho
         ctx.backward_method = control.get('backward', 'fixed_point')
         ctx.save_for_backward(x, u, lams, nus, Q, A, lb, ub)
 
@@ -67,6 +67,44 @@ class SolveBoxQPLayer(torch.autograd.Function):
         return grads
 
 
+class BoxQPTH:
+    def __init__(self, Q, p, A, b, lb, ub, control):
+        # --- input space:
+        self.Q = Q
+        self.p = p
+        self.A = A
+        self.b = b
+        self.lb = lb
+        self.ub = ub
+        self.control = control
+
+        # --- solution storage:
+        self.sol = {}
+
+    def solve(self):
+        sol = torch_solve_box_qp(Q=self.Q, p=self.p, A=self.A, b=self.b, lb=self.lb, ub=self.ub, control=self.control)
+        self.sol = sol
+        x = sol.get('x')
+        return x
+
+    def update(self, Q=None, p=None, A=None, b=None, lb=None, ub=None, control=None):
+        if Q is not None:
+            self.Q = Q
+        if p is not None:
+            self.p = p
+        if A is not None:
+            self.A = A
+        if b is not None:
+            self.b = b
+        if lb is not None:
+            self.lb = None
+        if ub is not None:
+            self.ub = None
+        if control is not None:
+            self.control = control
+        return None
+
+
 def torch_solve_box_qp(Q, p, A, b, lb, ub, control):
     #######################################################################
     # Solve a QP in form:
@@ -82,38 +120,71 @@ def torch_solve_box_qp(Q, p, A, b, lb, ub, control):
     # Returns: x_star:  A (n_batch,n_x,1) tensor
     #######################################################################
 
-    # --- unpacking control:
-    max_iters = control.get('max_iters', 1000)
-    eps_abs = control.get('eps_abs', 0.001)
-    eps_rel = control.get('eps_rel', 0.001)
-    check_termination = control.get('check_termination', 1)
-    rho = control.get('rho', 1)
-    verbose = control.get('verbose', False)
-    scaling_iter = control.get('scaling_iter', 0)
-    aa_iter = control.get('aa_iter', 0)
-    reduce = control.get('reduce', 'mean')
-    unroll = control.get('unroll', False)
-
     # --- prep:
     n_batch = Q.shape[0]
     n_eq = get_ncon(A, dim=1)
+    n_x = p.shape[1]
     any_eq = n_eq > 0
     any_lb = torch.max(lb) > -float("inf")
     any_ub = torch.min(ub) < float("inf")
     any_ineq = any_lb or any_ub
-    n_x = p.shape[1]
-    idx_x = np.arange(0, n_x)
-    idx_eq = np.arange(n_x, n_x + n_eq)
+
+    # --- unpacking control:
+    max_iters = control.get('max_iters', 10_000)
+    eps_abs = control.get('eps_abs', 1e-3)
+    eps_rel = control.get('eps_rel', 1e-3)
+    check_solved = control.get('check_solved', max(round((n_x ** 0.5) / 10) * 10, 1))
+    rho = control.get('rho', None)
+    rho_min = control.get('rho_min', 1e-6)
+    rho_max = control.get('rho_max', 1e6)
+    adaptive_rho = control.get('adaptive_rho', False)
+    adaptive_rho_tol = control.get('adaptive_rho_tol', 5)
+    adaptive_rho_iter = control.get('adaptive_rho_iter', 100)
+    adaptive_rho_iter = round(adaptive_rho_iter / check_solved) * check_solved
+    adaptive_rho_max_iter = control.get('adaptive_max_iter', 1000)
+    verbose = control.get('verbose', False)
+    scale = control.get('scale', False)
+    unroll = control.get('unroll', False)
 
     #  --- if not any inequality constraints - zero will solve in a single iteration.
     if not any_ineq:
         rho = 0
 
+    # --- scaling and pre-conditioning:
+    if scale:
+        D = 1 / torch.sqrt(torch.linalg.norm(Q, ord=torch.inf, dim=1))
+        Q = (D.unsqueeze(2) * Q * D.unsqueeze(1))
+        p = D.unsqueeze(2) * p
+        # --- A scaling:
+        if any_eq:
+            A = A * D.unsqueeze(1)
+            E = 1 / torch.linalg.norm(A, ord=torch.inf, dim=2)
+            E = E.unsqueeze(2)
+            A = E * A
+            b = E * b
+        D = D.unsqueeze(2)
+        if any_ineq:
+            lb = lb / D
+            ub = ub / D
+    else:
+        D = 1.0
+        E = 1.0
+
+    # --- rho parameter selection:
+    if rho is None:
+        if any_eq:
+            num = torch.linalg.matrix_norm(Q, keepdim=True)
+            denom = torch.linalg.matrix_norm(torch.matmul(torch.transpose(A, dim0=1, dim1=2), A), keepdim=True)
+            rho = torch.sqrt(num / denom)
+            rho = torch.clamp(rho, min=rho_min, max=rho_max)
+        else:
+            rho = 1.0
+
     # --- LU factorization:
-    Id = torch.eye(n_x).unsqueeze(0)
+    Id = torch.eye(n_x, dtype=p.dtype).unsqueeze(0)
     M = Q + rho * Id
     if any_eq:
-        zero = torch.zeros(n_batch, n_eq, n_eq)
+        zero = torch.zeros(n_batch, n_eq, n_eq, dtype=p.dtype)
         M1 = torch.cat((M, torch.transpose(A, 1, 2)), 2)
         M2 = torch.cat((A, zero), 2)
         M = torch.cat((M1, M2), 1)
@@ -123,39 +194,49 @@ def torch_solve_box_qp(Q, p, A, b, lb, ub, control):
     if unroll:
         LUModel = TorchLU(A=M, LU=LU, P=P)
 
-    x = torch.zeros((n_batch, n_x, 1))
-    z = torch.zeros((n_batch, n_x, 1))
-    u = torch.zeros((n_batch, n_x, 1))
+    x = torch.zeros((n_batch, n_x, 1), dtype=p.dtype)
+    z = torch.zeros((n_batch, n_x, 1), dtype=p.dtype)
+    u = torch.zeros((n_batch, n_x, 1), dtype=p.dtype)
     # --- main loop
     for i in range(max_iters):
+        # --- adaptive rho:
+        if adaptive_rho and i % adaptive_rho_iter == 0 and 0 < i < adaptive_rho_max_iter:
+            num = primal_error / tol_primal_rel_norm
+            denom = dual_error / y_norm
+            denom = torch.clamp(denom, min=1e-12)
+            ratio = (num / denom) ** 0.5
+            update_rho_1 = (ratio > adaptive_rho_tol).sum() > 0
+            update_rho_2 = (ratio < (1 / adaptive_rho_tol)).sum() > 0
+            update_rho = update_rho_1.item() or update_rho_2.item()
+            if update_rho:
+                rho_new = rho * ratio
+                rho = rho * is_optimal + rho_new * torch.logical_not(is_optimal)
+                rho = torch.clamp(rho, min=rho_min, max=rho_max)
+                M[:, :n_x, :n_x] = Q + rho * Id
+                with torch.no_grad():
+                    LU, P = torch.linalg.lu_factor(M)
+                if unroll:
+                    LUModel = TorchLU(A=M, LU=LU, P=P)
+
         # --- projection to sub-space:
-        y = z - u
         if any_eq:
-            rhs = torch.cat((-p + rho * y, b), 1)
+            rhs = torch.cat((-p + rho * (z - u), b), 1)
         else:
-            rhs = -p + rho * y
+            rhs = -p + rho * (z - u)
 
         if unroll:
             xv = LUModel(A=M, b=rhs)
         else:
             xv = torch.linalg.lu_solve(LU, P, rhs)
-        x = xv[:, idx_x, :]
+        x = xv[:, :n_x, :]
 
         # --- proximal projection:
         z_prev = z
         z = x + u
-        if any_ineq:
-            z = torch_proj_box(z,
-                               lb=lb,
-                               ub=ub,
-                               any_lb=any_lb,
-                               any_ub=any_ub)
-        if rho == 0:
-            z_prev = z
-
-        # --- andersen acceleration:
-        # if aa_iter > 0:
-        # --- placeholder for andersen acceleration
+        if any_lb:
+            z = torch.maximum(z, lb)
+        if any_ub:
+            z = torch.minimum(z, ub)
 
         # --- update residuals
         r = x - z
@@ -164,31 +245,36 @@ def torch_solve_box_qp(Q, p, A, b, lb, ub, control):
         u = u + r
 
         # ---  primal and dual errors:
-        if i % check_termination == 0:
-            primal_error = torch.linalg.norm(r, dim=1)
-            dual_error = torch.linalg.norm(s, dim=1)
-            if reduce == 'mean':
-                primal_error = primal_error.mean()
-                dual_error = dual_error.mean()
-            else:
-                primal_error = primal_error.max()
-                dual_error = dual_error.max()
+        if i % check_solved == 0:
+            primal_error = torch.linalg.norm(D * r, dim=1, keepdim=True)
+            dual_error = torch.linalg.norm(D * s, dim=1, keepdim=True)
+
             if verbose:
+                primal_error_max = primal_error.max()
+                dual_error_max = dual_error.max()
                 print('iteration = {:d}'.format(i))
-                print('|| primal_error||_2 = {:f}'.format(primal_error.item()))
-                print('|| dual_error||_2 = {:f}'.format(dual_error.item()))
+                print('|| primal_error||_2 = {:f}'.format(primal_error_max.item()))
+                print('|| dual_error||_2 = {:f}'.format(dual_error_max.item()))
 
-            x_norm = torch.linalg.norm(x, dim=1).mean()
-            z_norm = torch.linalg.norm(z, dim=1).mean()
-            y_norm = torch.linalg.norm(y, dim=1).mean()
+            x_norm = torch.linalg.norm(D * x, dim=1, keepdim=True)
+            z_norm = torch.linalg.norm(D * z, dim=1, keepdim=True)
+            y_norm = torch.linalg.norm(rho * D * u, dim=1, keepdim=True)
 
-            tol_primal = eps_abs * n_x ** 0.5 + eps_rel * max(x_norm, z_norm)
+            tol_primal_rel_norm = torch.maximum(x_norm, z_norm)
+            tol_primal = eps_abs * n_x ** 0.5 + eps_rel * tol_primal_rel_norm
             tol_dual = eps_abs * n_x ** 0.5 + eps_rel * y_norm
 
-            do_stop = primal_error < tol_primal and dual_error < tol_dual
-            if do_stop:
+            # --- check for optimality
+            do_stop_primal = primal_error < tol_primal
+            do_stop_dual = dual_error < tol_dual
+            is_optimal = torch.logical_and(do_stop_primal, do_stop_dual)
+            if torch.all(is_optimal).item():
                 break
 
+    # --- reverse the scaling:
+    x = D * x
+    z = D * z
+    u = u / D
     # --- residuals can be computed using x-z, z-z_prev
     lams = u * rho
     lams_neg = torch.threshold(-lams, 0, 0)
@@ -197,12 +283,11 @@ def torch_solve_box_qp(Q, p, A, b, lb, ub, control):
 
     nus = None
     if any_eq:
-        nus = xv[:, idx_eq, :]
-
+        nus = xv[:, -n_eq:, :] * E
     if unroll:
         sol = x
     else:
-        sol = {"x": x, "z": z, "u": u, "lams": lams, "nus": nus}
+        sol = {"x": x, "z": z, "u": u, "lams": lams, "nus": nus, "rho": rho, "iter": i}
 
     return sol
 
@@ -222,18 +307,17 @@ def torch_proj_box(x, lb, ub, any_lb=True, any_ub=True):
 
 def torch_solve_box_qp_grad(dl_dz, x, u, lams, nus, Q, A, lb, ub, rho):
     # --- prep:
+    dtype = x.dtype
     n_batch = Q.shape[0]
     n_x = Q.shape[1]
     n_eq = get_ncon(A, dim=1)
     any_eq = n_eq > 0
-    idx_x = np.arange(0, n_x)
-    idx_eq = np.arange(n_x, n_x + n_eq)
 
     # --- derivative of the projection operator:
     xt = torch.transpose(x, 1, 2)
     s_x_u = x + u
 
-    dpi_dx = torch.ones((n_batch, n_x, 1))
+    dpi_dx = torch.ones((n_batch, n_x, 1), dtype=dtype)
     dpi_dx[s_x_u > ub] = 0
     dpi_dx[s_x_u < lb] = 0
 
@@ -242,17 +326,20 @@ def torch_solve_box_qp_grad(dl_dz, x, u, lams, nus, Q, A, lb, ub, rho):
 
     # --- rhs:
     if any_eq:
-        zeros = torch.zeros((n_batch, n_eq, 1))
+        zeros = torch.zeros((n_batch, n_eq, 1), dtype=dtype)
         rhs = torch.cat((-dl_dx, zeros), dim=1)
     else:
         rhs = -dl_dx
 
     # --- this section here can be optimized for speed.
     lhs = dpi_dx * Q
-    diag = lhs.diagonal(dim1=1, dim2=2) + rho * (1 - dpi_dx.squeeze(2))
+    if torch.is_tensor(rho):
+        diag = lhs.diagonal(dim1=1, dim2=2) + rho.squeeze(2) * (1 - dpi_dx.squeeze(2))
+    else:
+        diag = lhs.diagonal(dim1=1, dim2=2) + rho * (1 - dpi_dx.squeeze(2))
     lhs[:, range(n_x), range(n_x)] = diag
     if any_eq:
-        bottom_right = torch.zeros((n_batch, n_eq, n_eq))
+        bottom_right = torch.zeros((n_batch, n_eq, n_eq),  dtype=dtype)
         AT = torch.transpose(A, 1, 2)
         lhs_u = torch.cat((lhs, dpi_dx * AT), 2)
         lhs_l = torch.cat((A, bottom_right), 2)
@@ -262,7 +349,7 @@ def torch_solve_box_qp_grad(dl_dz, x, u, lams, nus, Q, A, lb, ub, rho):
     d_vec_2 = torch.linalg.solve(lhs, rhs)
 
     # --- from here
-    dv = d_vec_2[:, idx_x, :]
+    dv = d_vec_2[:, :n_x, :]
     dvt = torch.transpose(dv, 1, 2)
 
     # --- dl_dp
@@ -276,7 +363,7 @@ def torch_solve_box_qp_grad(dl_dz, x, u, lams, nus, Q, A, lb, ub, rho):
     dl_db = None
     dl_dA = None
     if any_eq:
-        dnu = d_vec_2[:, idx_eq, :]
+        dnu = d_vec_2[:, -n_eq:, :]
         dl_db = -dnu
         dl_dA = torch.matmul(dnu, xt) + torch.matmul(nus, dvt)
 
@@ -290,8 +377,8 @@ def torch_solve_box_qp_grad(dl_dz, x, u, lams, nus, Q, A, lb, ub, rho):
     dlam = kkt / div
 
     # --- dl_dlb and dl_dub
-    dl_dlb = dlam * lams[:, idx_x, :]
-    dl_dub = -dlam * lams[:, n_x + idx_x, :]
+    dl_dlb = dlam * lams[:, :n_x, :]
+    dl_dub = -dlam * lams[:, n_x:(2*n_x), :]
 
     # --- out list of grads
     grads = (dl_dQ, dl_dp, dl_dA, dl_db, dl_dlb, dl_dub, None)
@@ -370,22 +457,19 @@ def torch_solve_qp_backwards(dl_dz, sol_mats, n_eq, n_ineq):
     n_x = dl_dz.shape[1]
     n_con = n_eq + n_ineq
     zeros = torch.zeros(n_batch, n_con, 1)
-    idx_x = np.arange(0, n_x)
-    idx_ineq = np.arange(n_x, n_x + n_ineq)
-    idx_eq = np.arange(n_x + n_ineq, n_x + n_ineq + n_eq)
 
     # --- rhs:
     rhs = torch.cat((-dl_dz, zeros), dim=1)
     back_sol = torch.linalg.solve(sol_mats, rhs)
 
     # --- unpack solution:
-    dx = back_sol[:, idx_x, :]
+    dx = back_sol[:, :n_x, :]
     dlam = None
     dnu = None
     if n_ineq > 0:
-        dlam = back_sol[:, idx_ineq, :]
+        dlam = back_sol[:, n_x:(n_x + n_ineq), :]
     if n_eq > 0:
-        dnu = back_sol[:, idx_eq, :]
+        dnu = back_sol[:, (n_x + n_ineq):(n_x + n_ineq + n_eq), :]
 
     diff_list = {"dx": dx, "dlam": dlam, "dnu": dnu}
     return diff_list
@@ -438,16 +522,12 @@ def torch_qp_int_grads_admm(x, lams, nus, dx, dlam, dnu, any_lb, any_ub):
     dl_dlb = None
     dl_dub = None
     if any_lb & any_ub:
-        idx_lb = np.arange(0, n_x)
-        idx_ub = np.arange(n_x, n_x + n_x)
-        dl_dlb = -dl_dh[:, idx_lb, :]
-        dl_dub = dl_dh[:, idx_ub, :]
+        dl_dlb = -dl_dh[:, :n_x, :]
+        dl_dub = dl_dh[:, n_x:(2*n_x), :]
     elif any_lb:
-        idx_lb = np.arange(0, n_x)
-        dl_dlb = -dl_dh[:, idx_lb, :]
+        dl_dlb = -dl_dh[:, :n_x, :]
     elif any_ub:
-        idx_ub = np.arange(0, n_x)
-        dl_dub = dl_dh[:, idx_ub, :]
+        dl_dub = dl_dh[:, :n_x, :]
 
     # --- out list of grads
     grads = (dl_dQ, dl_dp, dl_dA, dl_db, dl_dlb, dl_dub, None)
