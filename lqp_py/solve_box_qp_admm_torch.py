@@ -312,6 +312,8 @@ def torch_solve_box_qp_grad(dl_dz, x, u, lams, nus, Q, A, lb, ub, rho):
     n_x = Q.shape[1]
     n_eq = get_ncon(A, dim=1)
     any_eq = n_eq > 0
+    if rho is None:
+        rho = 1.0
 
     # --- derivative of the projection operator:
     xt = torch.transpose(x, 1, 2)
