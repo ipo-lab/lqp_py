@@ -96,6 +96,7 @@ def solve_box_qp_core(Q, p, A, b, lb, ub, control):
     # --- prep:
     n_x = p.shape[0]
     n_A = get_ncon(A)
+    p_norm = np.linalg.norm(p, ord=np.inf)
     any_eq = n_A > 0
     any_lb = lb.max() > -float("inf")
     any_ub = ub.min() < float("inf")
@@ -116,16 +117,27 @@ def solve_box_qp_core(Q, p, A, b, lb, ub, control):
     adaptive_rho_max_iter = control.get('adaptive_max_iter', 1000)
     verbose = control.get('verbose', False)
     scale = control.get('scale', False)
+    beta = control.get('beta')
 
     # --- scaling and pre-conditioning:
     if scale:
-        D = np.sqrt(1 / np.linalg.norm(Q, ord=np.inf, axis=1))
+        Q_norm = np.linalg.norm(Q, ord=np.inf, axis=1)
+        if Q_norm.min() <= 0.0:
+            Q_norm[Q_norm == 0] = Q_norm.mean()
+        D = np.sqrt(1 / Q_norm)
+        if beta is None:
+            v = np.quantile(D, [0.10, 0.90])
+            beta = 1 - v[0] / v[1]
+        D = (1 - beta) * D + beta * D.mean()
         Q = D[:, None] * Q * D
         p = D * p
         # --- A scaling:
         if any_eq:
-            A = A*D
-            E = 1 / np.linalg.norm(A, ord=np.inf, axis=1)
+            A = A * D
+            A_norm = np.linalg.norm(A, ord=np.inf, axis=1)
+            if A_norm.min() <= 0.0:
+                A_norm[A_norm == 0] = A_norm.mean()
+            E = 1 / A_norm
             A = E[:, None] * A
             b = E*b
         if any_ineq:
@@ -137,12 +149,9 @@ def solve_box_qp_core(Q, p, A, b, lb, ub, control):
 
     # --- parameter selection:
     if rho is None:
-        if any_eq:
-            ATA = np.matmul(A.T, A)
-            rho = (np.linalg.norm(Q) / np.linalg.norm(ATA)) ** 0.5
-            rho = clamp(rho, rho_min, rho_max)
-        else:
-            rho = 1.0
+        Q_norm = np.linalg.norm(Q)
+        rho = np.sqrt(Q_norm / n_x)
+        rho = clamp(rho, rho_min, rho_max)
 
     # --- LU factorization:
     rhs = -p
@@ -167,9 +176,10 @@ def solve_box_qp_core(Q, p, A, b, lb, ub, control):
     for i in range(max_iters):
         # --- adaptive rho:
         if adaptive_rho and i % adaptive_rho_iter == 0 and 0 < i < adaptive_rho_max_iter:
-            num = primal_error / max(x_norm, z_norm)
-            denom = dual_error / y_norm
-            denom = clamp(denom, x_min=1e-12)
+            num = primal_error / tol_primal_rel_norm
+            num = clamp(num, x_min=eps_abs)
+            denom = dual_error / tol_dual_rel_norm
+            denom = clamp(denom, x_min=eps_abs)
             ratio = (num / denom) ** 0.5
             if ratio > adaptive_rho_tol or ratio < (1 / adaptive_rho_tol):
                 rho = clamp(rho * ratio, rho_min, rho_max)
@@ -202,19 +212,22 @@ def solve_box_qp_core(Q, p, A, b, lb, ub, control):
         # ---  primal and dual errors:
         if i % check_solved == 0:
             # --- reverse scaling:
-            primal_error = np.linalg.norm(D * r)
-            dual_error = np.linalg.norm(D * s)
+            primal_error = np.linalg.norm(D * r,  ord=np.inf)
+            dual_error = np.linalg.norm(D * s,  ord=np.inf)
             if verbose:
                 print('iteration = {:d}'.format(i))
-                print('|| primal_error||_2 = {:f}'.format(primal_error))
-                print('|| dual_error||_2 = {:f}'.format(dual_error))
+                print('|| primal_error|| = {:f}'.format(primal_error))
+                print('|| dual_error|| = {:f}'.format(dual_error))
 
-            x_norm = np.linalg.norm(D * x)
-            z_norm = np.linalg.norm(D * z)
-            y_norm = np.linalg.norm(rho * D * u)
+            x_norm = np.linalg.norm(D * x, ord=np.inf)
+            z_norm = np.linalg.norm(D * z, ord=np.inf)
+            y_norm = np.linalg.norm(rho * D * u, ord=np.inf)
+            Qx_norm = np.linalg.norm(np.matmul(Q, x) / D, ord=np.inf)
 
-            tol_primal = eps_abs * n_x ** 0.5 + eps_rel * max(x_norm, z_norm)
-            tol_dual = eps_abs * n_x ** 0.5 + eps_rel * y_norm
+            tol_primal_rel_norm = max(x_norm, z_norm)
+            tol_primal = eps_abs + eps_rel * tol_primal_rel_norm
+            tol_dual_rel_norm = max(y_norm, Qx_norm, p_norm)
+            tol_dual = eps_abs + eps_rel * tol_dual_rel_norm
 
             do_stop = primal_error < tol_primal and dual_error < tol_dual
             if do_stop:

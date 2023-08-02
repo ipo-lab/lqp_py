@@ -124,6 +124,7 @@ def torch_solve_box_qp(Q, p, A, b, lb, ub, control):
     n_batch = Q.shape[0]
     n_eq = get_ncon(A, dim=1)
     n_x = p.shape[1]
+    p_norm = torch.linalg.norm(p, ord=torch.inf, dim=1, keepdim=True)
     any_eq = n_eq > 0
     any_lb = torch.max(lb) > -float("inf")
     any_ub = torch.min(ub) < float("inf")
@@ -144,6 +145,7 @@ def torch_solve_box_qp(Q, p, A, b, lb, ub, control):
     adaptive_rho_max_iter = control.get('adaptive_max_iter', 1000)
     verbose = control.get('verbose', False)
     scale = control.get('scale', False)
+    beta = control.get('beta')
     unroll = control.get('unroll', False)
 
     #  --- if not any inequality constraints - zero will solve in a single iteration.
@@ -152,13 +154,32 @@ def torch_solve_box_qp(Q, p, A, b, lb, ub, control):
 
     # --- scaling and pre-conditioning:
     if scale:
-        D = 1 / torch.sqrt(torch.linalg.norm(Q, ord=torch.inf, dim=1))
+        # --- Q and p scaling:
+        Q_norm = torch.linalg.norm(Q, ord=torch.inf, dim=1)
+        idx = Q_norm <= 0.0
+        if torch.any(idx):
+            Q_norm_min = torch.clamp(Q_norm.mean(dim=1), min=1e-6)
+            Q_norm_clamp = torch.clamp(Q_norm, min=Q_norm_min.unsqueeze(1))
+            Q_norm[idx] = Q_norm_clamp[idx]
+        # --- compute D:
+        D = torch.sqrt(1 / Q_norm)
+        if beta is None:
+            v = torch.quantile(D, q=torch.tensor([0.10, 0.90], dtype=D.dtype), dim=1)
+            beta = 1 - v[[0]]/v[[1]]
+            beta = beta.T
+        D = (1 - beta) * D + beta * D.mean(dim=1, keepdim=True)
         Q = (D.unsqueeze(2) * Q * D.unsqueeze(1))
         p = D.unsqueeze(2) * p
         # --- A scaling:
         if any_eq:
             A = A * D.unsqueeze(1)
-            E = 1 / torch.linalg.norm(A, ord=torch.inf, dim=2)
+            A_norm = torch.linalg.norm(A, ord=torch.inf, dim=2)
+            idx = A_norm <= 0.0
+            if torch.any(idx):
+                AD_norm_min = torch.clamp(A_norm.mean(dim=1), min=1e-6)
+                AD_norm_clamp = torch.clamp(A_norm, min=AD_norm_min.unsqueeze(1))
+                A_norm[idx] = AD_norm_clamp[idx]
+            E = 1 / A_norm
             E = E.unsqueeze(2)
             A = E * A
             b = E * b
@@ -172,13 +193,13 @@ def torch_solve_box_qp(Q, p, A, b, lb, ub, control):
 
     # --- rho parameter selection:
     if rho is None:
-        if any_eq:
-            num = torch.linalg.matrix_norm(Q, keepdim=True)
-            denom = torch.linalg.matrix_norm(torch.matmul(torch.transpose(A, dim0=1, dim1=2), A), keepdim=True)
-            rho = torch.sqrt(num / denom)
-            rho = torch.clamp(rho, min=rho_min, max=rho_max)
+        Q_norm = torch.linalg.matrix_norm(Q, keepdim=True)
+        if any_eq and False:
+            A_norm = torch.linalg.matrix_norm(A, keepdim=True)
+            rho = torch.sqrt(Q_norm / A_norm)
         else:
-            rho = 1.0
+            rho = torch.sqrt(Q_norm / n_x)
+        rho = torch.clamp(rho, min=rho_min, max=rho_max)
 
     # --- LU factorization:
     Id = torch.eye(n_x, dtype=p.dtype).unsqueeze(0)
@@ -202,8 +223,9 @@ def torch_solve_box_qp(Q, p, A, b, lb, ub, control):
         # --- adaptive rho:
         if adaptive_rho and i % adaptive_rho_iter == 0 and 0 < i < adaptive_rho_max_iter:
             num = primal_error / tol_primal_rel_norm
-            denom = dual_error / y_norm
-            denom = torch.clamp(denom, min=1e-12)
+            num = torch.clamp(num, min=eps_abs)
+            denom = dual_error / tol_dual_rel_norm
+            denom = torch.clamp(denom, min=eps_abs)
             ratio = (num / denom) ** 0.5
             update_rho_1 = (ratio > adaptive_rho_tol).sum() > 0
             update_rho_2 = (ratio < (1 / adaptive_rho_tol)).sum() > 0
@@ -212,6 +234,7 @@ def torch_solve_box_qp(Q, p, A, b, lb, ub, control):
                 rho_new = rho * ratio
                 rho = rho * is_optimal + rho_new * torch.logical_not(is_optimal)
                 rho = torch.clamp(rho, min=rho_min, max=rho_max)
+                # --- note we should be able to just update LU directly as only diagonal is changing. 
                 M[:, :n_x, :n_x] = Q + rho * Id
                 with torch.no_grad():
                     LU, P = torch.linalg.lu_factor(M)
@@ -246,23 +269,25 @@ def torch_solve_box_qp(Q, p, A, b, lb, ub, control):
 
         # ---  primal and dual errors:
         if i % check_solved == 0:
-            primal_error = torch.linalg.norm(D * r, dim=1, keepdim=True)
-            dual_error = torch.linalg.norm(D * s, dim=1, keepdim=True)
+            primal_error = torch.linalg.norm(D * r, ord=torch.inf, dim=1, keepdim=True)
+            dual_error = torch.linalg.norm(D * s, ord=torch.inf, dim=1, keepdim=True)
 
             if verbose:
                 primal_error_max = primal_error.max()
                 dual_error_max = dual_error.max()
                 print('iteration = {:d}'.format(i))
-                print('|| primal_error||_2 = {:f}'.format(primal_error_max.item()))
-                print('|| dual_error||_2 = {:f}'.format(dual_error_max.item()))
+                print('|| primal_error|| = {:f}'.format(primal_error_max.item()))
+                print('|| dual_error|| = {:f}'.format(dual_error_max.item()))
 
-            x_norm = torch.linalg.norm(D * x, dim=1, keepdim=True)
-            z_norm = torch.linalg.norm(D * z, dim=1, keepdim=True)
-            y_norm = torch.linalg.norm(rho * D * u, dim=1, keepdim=True)
+            x_norm = torch.linalg.norm(D * x, ord=torch.inf, dim=1, keepdim=True)
+            z_norm = torch.linalg.norm(D * z, ord=torch.inf, dim=1, keepdim=True)
+            y_norm = torch.linalg.norm(rho * D * u, ord=torch.inf, dim=1, keepdim=True)
+            Qx_norm = torch.linalg.norm(torch.matmul(Q, x) / D, ord=torch.inf, dim=1, keepdim=True)
 
             tol_primal_rel_norm = torch.maximum(x_norm, z_norm)
-            tol_primal = eps_abs * n_x ** 0.5 + eps_rel * tol_primal_rel_norm
-            tol_dual = eps_abs * n_x ** 0.5 + eps_rel * y_norm
+            tol_primal = eps_abs + eps_rel * tol_primal_rel_norm
+            tol_dual_rel_norm = torch.maximum(torch.maximum(y_norm, Qx_norm), p_norm)
+            tol_dual = eps_abs + eps_rel * tol_dual_rel_norm
 
             # --- check for optimality
             do_stop_primal = primal_error < tol_primal
