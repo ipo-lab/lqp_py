@@ -194,11 +194,7 @@ def torch_solve_box_qp(Q, p, A, b, lb, ub, control):
     # --- rho parameter selection:
     if rho is None:
         Q_norm = torch.linalg.matrix_norm(Q, keepdim=True)
-        if any_eq and False:
-            A_norm = torch.linalg.matrix_norm(A, keepdim=True)
-            rho = torch.sqrt(Q_norm / A_norm)
-        else:
-            rho = torch.sqrt(Q_norm / n_x)
+        rho = Q_norm / n_x**0.5
         rho = torch.clamp(rho, min=rho_min, max=rho_max)
 
     # --- LU factorization:
@@ -234,7 +230,7 @@ def torch_solve_box_qp(Q, p, A, b, lb, ub, control):
                 rho_new = rho * ratio
                 rho = rho * is_optimal + rho_new * torch.logical_not(is_optimal)
                 rho = torch.clamp(rho, min=rho_min, max=rho_max)
-                # --- note we should be able to just update LU directly as only diagonal is changing. 
+                # --- note we should be able to just update LU directly as only diagonal is changing.
                 M[:, :n_x, :n_x] = Q + rho * Id
                 with torch.no_grad():
                     LU, P = torch.linalg.lu_factor(M)
