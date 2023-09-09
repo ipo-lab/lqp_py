@@ -369,6 +369,7 @@ def torch_solve_box_qp_grad(dl_dz, x, u, lams, nus, Q, A, lb, ub, rho):
         lhs = torch.cat((lhs_u, lhs_l), 1)
 
     # --- main system solve -- optimize here?
+    lhs[:, range(n_x + n_eq), range(n_x + n_eq)] = lhs.diagonal(dim1=1, dim2=2) + 1e-8 #---small regularizer
     d_vec_2 = torch.linalg.solve(lhs, rhs)
 
     # --- from here
