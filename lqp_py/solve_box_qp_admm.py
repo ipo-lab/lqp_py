@@ -150,7 +150,7 @@ def solve_box_qp_core(Q, p, A, b, lb, ub, control):
     # --- parameter selection:
     if rho is None:
         Q_norm = np.linalg.norm(Q)
-        rho = np.sqrt(Q_norm / n_x)
+        rho = Q_norm / np.sqrt(n_x)
         rho = clamp(rho, rho_min, rho_max)
 
     # --- LU factorization:
