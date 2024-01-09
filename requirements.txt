@@ -5,7 +5,7 @@ cvxpylayers==0.1.5
 cycler==0.11.0
 diffcp==1.0.21
 ecos==2.0.12
-fonttools==4.38.0
+fonttools==4.47.0
 kiwisolver==1.4.4
 matplotlib==3.6.2
 numpy==1.24.1
