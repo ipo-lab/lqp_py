@@ -4,18 +4,18 @@ import pandas as pd
 from lqp_py.solve_box_qp_admm_torch import SolveBoxQP
 from lqp_py.control import box_qp_control
 from qpth.qp import QPFunction
-from experiments.utils import create_qp_data
+from experiments.utils import create_qp_data, plot_profile_bars
 import time as time
 import matplotlib.pyplot as plt
 
 # --- create problem data
-n_x = 100
+n_x = 1000
 n_features = 5
 learning_rate = 0.0005
 n_batch = 128
 n_samples = 2 * n_x
 n_sims = 10
-tol = 10 ** -5
+tol = 10 ** -3
 n_epochs = 100
 n_mini_batch = 32
 # --- models:
@@ -100,22 +100,9 @@ for i in range(n_sims):
             backward_times[model_name][i] += backward_time
             total_times[model_name][i] += total_time
 
-# --- median runtime
-dat = pd.concat({
-    'Backward': backward_times.median(axis=0),
-    'Forward': forward_times.median(axis=0),
-    "Total": total_times.median(axis=0)}, axis=1)
-
-# --- error bars:
-error = pd.concat({
-    'Backward': backward_times.std(axis=0),
-    'Forward': forward_times.std(axis=0),
-    "Total": total_times.std(axis=0)}, axis=1)
-
-title = 'Decision Variables = {:d}'.format(n_x)
-
-color = ["#E69F00", "#56B4E9", "#999999"]
-dat.plot.bar(ylabel='time (s)', rot=0, color=color, yerr=error)  # title=title
+file_name = 'images_paper/exp_2_dz_'+str(n_x)+'.pdf'
+plot_profile_bars(backward_times, forward_times, total_times, n_sims, fontsize=8, logy=True)
+plt.savefig(file_name)
 
 # --- convergence plots:
 loss_min = loss_hist.min()
@@ -135,3 +122,5 @@ plt.fill_between(np.arange(n_epochs), loss_mean['ADMM'] - 2 * loss_error['ADMM']
                  loss_mean['ADMM'] + 2 * loss_error['ADMM'], alpha=0.25, color=color2[0])
 plt.fill_between(np.arange(n_epochs), loss_mean['OptNet'] - 2 * loss_error['OptNet'],
                  loss_mean['OptNet'] + 2 * loss_error['OptNet'], alpha=0.25, color=color2[1])
+file_name = 'images_paper/exp_2_conv_dz_'+str(n_x)+'.pdf'
+plt.savefig(file_name)
