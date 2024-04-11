@@ -226,7 +226,7 @@ def torch_solve_box_qp(Q, p, A, b, lb, ub, control):
             update_rho_1 = (ratio > adaptive_rho_tol).sum() > 0
             update_rho_2 = (ratio < (1 / adaptive_rho_tol)).sum() > 0
             update_rho = update_rho_1.item() or update_rho_2.item()
-            if update_rho:
+            if update_rho and ratio.isfinite().all():
                 rho_new = rho * ratio
                 rho = rho * is_optimal + rho_new * torch.logical_not(is_optimal)
                 rho = torch.clamp(rho, min=rho_min, max=rho_max)
