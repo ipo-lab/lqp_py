@@ -1,7 +1,7 @@
 def box_qp_control(max_iters=10_000, eps_abs=1e-3, eps_rel=1e-3, check_solved=None,
                    rho=None, rho_min=1e-6, rho_max=1e6, adaptive_rho=True, adaptive_rho_tol=10,
-                   adaptive_rho_iter=100, adaptive_rho_max_iter=1000, verbose=False, scale=True,
-                   beta=None, unroll=False, backward='fixed_point', **kwargs):
+                   adaptive_rho_iter=100, adaptive_rho_max_iter=1000, adaptive_rho_threshold=1e-5,
+                   verbose=False, scale=True, beta=None, unroll=False, backward='fixed_point', **kwargs):
     control = {"max_iters": max_iters,
                "eps_abs": eps_abs,
                "eps_rel": eps_rel,
@@ -13,6 +13,7 @@ def box_qp_control(max_iters=10_000, eps_abs=1e-3, eps_rel=1e-3, check_solved=No
                "adaptive_rho_tol": adaptive_rho_tol,
                "adaptive_rho_iter": adaptive_rho_iter,
                "adaptive_rho_max_iter": adaptive_rho_max_iter,
+               "adaptive_rho_threshold": adaptive_rho_threshold,
                "verbose": verbose,
                "scale": scale,
                "unroll": unroll,

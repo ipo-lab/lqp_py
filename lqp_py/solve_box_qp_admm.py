@@ -105,6 +105,7 @@ def solve_box_qp_core(Q, p, A, b, lb, ub, control):
     # --- unpacking control:
     max_iters = control.get('max_iters', 10_000)
     eps_abs = control.get('eps_abs', 1e-3)
+    eps_abs = max(eps_abs, 1e-16)
     eps_rel = control.get('eps_rel', 1e-3)
     check_solved = control.get('check_solved', max(round((n_x**0.5)/10)*10, 1))
     rho = control.get('rho', None)
@@ -114,7 +115,9 @@ def solve_box_qp_core(Q, p, A, b, lb, ub, control):
     adaptive_rho_tol = control.get('adaptive_rho_tol', 5)
     adaptive_rho_iter = control.get('adaptive_rho_iter', 100)
     adaptive_rho_iter = round(adaptive_rho_iter / check_solved) * check_solved
+    adaptive_rho_iter = max(adaptive_rho_iter, 1)
     adaptive_rho_max_iter = control.get('adaptive_max_iter', 1000)
+    adaptive_rho_threshold = control.get('adaptive_rho_threshold', 1e-5)
     verbose = control.get('verbose', False)
     scale = control.get('scale', False)
     beta = control.get('beta')
@@ -140,6 +143,8 @@ def solve_box_qp_core(Q, p, A, b, lb, ub, control):
             E = 1 / A_norm
             A = E[:, None] * A
             b = E*b
+        else:
+            E = 1.0
         if any_ineq:
             lb = lb / D
             ub = ub / D
@@ -172,19 +177,28 @@ def solve_box_qp_core(Q, p, A, b, lb, ub, control):
     z = np.zeros(n_x)
     u = np.zeros(n_x)
 
+    # --- init args:
+    primal_error = None
+    tol_primal_rel_norm = None
+    dual_error = None
+    tol_dual_rel_norm = None
+    xv = None
+    i = 0
+    zero_clamp = 1e-16
     # --- main loop
     for i in range(max_iters):
         # --- adaptive rho:
         if adaptive_rho and i % adaptive_rho_iter == 0 and 0 < i < adaptive_rho_max_iter:
-            num = primal_error / tol_primal_rel_norm
-            num = clamp(num, x_min=eps_abs)
-            denom = dual_error / tol_dual_rel_norm
-            denom = clamp(denom, x_min=eps_abs)
-            ratio = (num / denom) ** 0.5
-            if ratio > adaptive_rho_tol or ratio < (1 / adaptive_rho_tol):
-                rho = clamp(rho * ratio, rho_min, rho_max)
-                M[:n_x, :n_x] = Q + rho * Id
-                M_lu = lu_factor(M)
+            if primal_error > adaptive_rho_threshold or dual_error > adaptive_rho_threshold:
+                num = primal_error / tol_primal_rel_norm
+                num = clamp(num, x_min=zero_clamp)
+                denom = dual_error / tol_dual_rel_norm
+                denom = clamp(denom, x_min=zero_clamp)
+                ratio = (num / denom) ** 0.5
+                if ratio > adaptive_rho_tol or ratio < (1 / adaptive_rho_tol):
+                    rho = clamp(rho * ratio, rho_min, rho_max)
+                    M[:n_x, :n_x] = Q + rho * Id
+                    M_lu = lu_factor(M)
 
         # --- projection to sub-space:
         rhs[:n_x] = -p + rho * (z - u)
@@ -215,18 +229,18 @@ def solve_box_qp_core(Q, p, A, b, lb, ub, control):
             primal_error = np.linalg.norm(D * r,  ord=np.inf)
             dual_error = np.linalg.norm(D * s,  ord=np.inf)
             if verbose:
-                print('iteration = {:d}'.format(i))
-                print('|| primal_error|| = {:f}'.format(primal_error))
-                print('|| dual_error|| = {:f}'.format(dual_error))
+                print(f'iteration = {i}')
+                print(f'|| primal_error|| = {primal_error:.10f}')
+                print(f'|| dual_error|| = {dual_error:.10f}')
 
             x_norm = np.linalg.norm(D * x, ord=np.inf)
             z_norm = np.linalg.norm(D * z, ord=np.inf)
             y_norm = np.linalg.norm(rho * D * u, ord=np.inf)
             Qx_norm = np.linalg.norm(np.matmul(Q, x) / D, ord=np.inf)
 
-            tol_primal_rel_norm = max(x_norm, z_norm)
+            tol_primal_rel_norm = max(x_norm, z_norm, zero_clamp)
             tol_primal = eps_abs + eps_rel * tol_primal_rel_norm
-            tol_dual_rel_norm = max(y_norm, Qx_norm, p_norm)
+            tol_dual_rel_norm = max(y_norm, Qx_norm, p_norm, zero_clamp)
             tol_dual = eps_abs + eps_rel * tol_dual_rel_norm
 
             do_stop = primal_error < tol_primal and dual_error < tol_dual
@@ -245,6 +259,8 @@ def solve_box_qp_core(Q, p, A, b, lb, ub, control):
     # --- equality:
     if any_eq:
         nu = xv[-n_A:] * E
+    else:
+        nu = None
     sol = {"x": x, "z": z, "u": u, "lam": lam, "nu": nu, "rho": rho,
            "primal_error": primal_error, "dual_error": dual_error,
            "iter": i}
@@ -264,6 +280,3 @@ def prep_bound(x, n_x, default=None):
 
 def clamp(x, x_min=-float('inf'), x_max=float('inf')):
     return min(max(x, x_min), x_max)
-
-
-
