@@ -1,7 +1,10 @@
 import numpy as np
 
 
-def solve_qp_uncon(Q, p,):
+def solve_qp_uncon(
+    Q,
+    p,
+):
     #######################################################################
     # Solve a QP in form:
     #   x_star =   argmin_x 0.5*x^TQx + p^Tx

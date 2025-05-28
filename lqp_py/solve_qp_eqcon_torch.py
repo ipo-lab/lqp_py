@@ -3,7 +3,12 @@ from lqp_py.utils import get_ncon, torch_qp_eqcon_mat
 from lqp_py.solve_qp_uncon_torch import torch_solve_qp_uncon
 
 
-def torch_solve_qp_eqcon(Q, p, A, b,):
+def torch_solve_qp_eqcon(
+    Q,
+    p,
+    A,
+    b,
+):
     #######################################################################
     # Solve a QP in form:
     #   x_star =   argmin_x 0.5*x^TQx + p^Tx
@@ -36,17 +41,18 @@ def torch_solve_qp_eqcon(Q, p, A, b,):
 
 def torch_solve_qp_eqcon_grad(dl_dz, x, nus, Q, A):
     # --- prep:
+    device = Q.device
     n_batch = Q.shape[0]
     dtype = Q.dtype
     n_eq = get_ncon(A, dim=1)
     any_eq = n_eq > 0
 
     # --- sol:
-    zeros = torch.zeros((n_batch, n_eq, 1), dtype = dtype)
+    zeros = torch.zeros((n_batch, n_eq, 1), dtype=dtype, device=device)
     sol = torch_solve_qp_eqcon(Q=Q, p=dl_dz, A=A, b=zeros)
 
-    dx = sol.get('x')
-    dnu = sol.get('nus')
+    dx = sol.get("x")
+    dnu = sol.get("nus")
 
     dxt = torch.transpose(dx, 1, 2)
     xt = torch.transpose(x, 1, 2)

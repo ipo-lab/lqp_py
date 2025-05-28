@@ -19,9 +19,17 @@ class BoxQP:
         self.sol = {}
 
     def solve(self):
-        sol = solve_box_qp(Q=self.Q, p=self.p, A=self.A, b=self.b, lb=self.lb, ub=self.ub, control=self.control)
+        sol = solve_box_qp(
+            Q=self.Q,
+            p=self.p,
+            A=self.A,
+            b=self.b,
+            lb=self.lb,
+            ub=self.ub,
+            control=self.control,
+        )
         self.sol = sol
-        x = sol.get('x')
+        x = sol.get("x")
         return x
 
     def update(self, Q=None, p=None, A=None, b=None, lb=None, ub=None, control=None):
@@ -80,7 +88,7 @@ def solve_box_qp(Q, p, A=None, b=None, lb=-float("inf"), ub=float("inf"), contro
 
     #  --- if not any inequality constraints - zero will solve in a single iteration.
     if not any_ineq:
-        control['rho'] = 0
+        control["rho"] = 0
 
     # ---- unconstrained problem
     if not any_eq and not any_ineq:
@@ -103,24 +111,24 @@ def solve_box_qp_core(Q, p, A, b, lb, ub, control):
     any_ineq = any_lb or any_ub
 
     # --- unpacking control:
-    max_iters = control.get('max_iters', 10_000)
-    eps_abs = control.get('eps_abs', 1e-3)
+    max_iters = control.get("max_iters", 10_000)
+    eps_abs = control.get("eps_abs", 1e-3)
     eps_abs = max(eps_abs, 1e-16)
-    eps_rel = control.get('eps_rel', 1e-3)
-    check_solved = control.get('check_solved', max(round((n_x**0.5)/10)*10, 1))
-    rho = control.get('rho', None)
-    rho_min = control.get('rho_min', 1e-6)
-    rho_max = control.get('rho_max', 1e6)
-    adaptive_rho = control.get('adaptive_rho', False)
-    adaptive_rho_tol = control.get('adaptive_rho_tol', 5)
-    adaptive_rho_iter = control.get('adaptive_rho_iter', 100)
+    eps_rel = control.get("eps_rel", 1e-3)
+    check_solved = control.get("check_solved", max(round((n_x**0.5) / 10) * 10, 1))
+    rho = control.get("rho", None)
+    rho_min = control.get("rho_min", 1e-6)
+    rho_max = control.get("rho_max", 1e6)
+    adaptive_rho = control.get("adaptive_rho", False)
+    adaptive_rho_tol = control.get("adaptive_rho_tol", 5)
+    adaptive_rho_iter = control.get("adaptive_rho_iter", 100)
     adaptive_rho_iter = round(adaptive_rho_iter / check_solved) * check_solved
     adaptive_rho_iter = max(adaptive_rho_iter, 1)
-    adaptive_rho_max_iter = control.get('adaptive_max_iter', 1000)
-    adaptive_rho_threshold = control.get('adaptive_rho_threshold', 1e-5)
-    verbose = control.get('verbose', False)
-    scale = control.get('scale', False)
-    beta = control.get('beta')
+    adaptive_rho_max_iter = control.get("adaptive_max_iter", 1000)
+    adaptive_rho_threshold = control.get("adaptive_rho_threshold", 1e-5)
+    verbose = control.get("verbose", False)
+    scale = control.get("scale", False)
+    beta = control.get("beta")
 
     # --- scaling and pre-conditioning:
     if scale:
@@ -142,7 +150,7 @@ def solve_box_qp_core(Q, p, A, b, lb, ub, control):
                 A_norm[A_norm == 0] = A_norm.mean()
             E = 1 / A_norm
             A = E[:, None] * A
-            b = E*b
+            b = E * b
         else:
             E = 1.0
         if any_ineq:
@@ -188,8 +196,15 @@ def solve_box_qp_core(Q, p, A, b, lb, ub, control):
     # --- main loop
     for i in range(max_iters):
         # --- adaptive rho:
-        if adaptive_rho and i % adaptive_rho_iter == 0 and 0 < i < adaptive_rho_max_iter:
-            if primal_error > adaptive_rho_threshold or dual_error > adaptive_rho_threshold:
+        if (
+            adaptive_rho
+            and i % adaptive_rho_iter == 0
+            and 0 < i < adaptive_rho_max_iter
+        ):
+            if (
+                primal_error > adaptive_rho_threshold
+                or dual_error > adaptive_rho_threshold
+            ):
                 num = primal_error / tol_primal_rel_norm
                 num = clamp(num, x_min=zero_clamp)
                 denom = dual_error / tol_dual_rel_norm
@@ -226,12 +241,12 @@ def solve_box_qp_core(Q, p, A, b, lb, ub, control):
         # ---  primal and dual errors:
         if i % check_solved == 0:
             # --- reverse scaling:
-            primal_error = np.linalg.norm(D * r,  ord=np.inf)
-            dual_error = np.linalg.norm(D * s,  ord=np.inf)
+            primal_error = np.linalg.norm(D * r, ord=np.inf)
+            dual_error = np.linalg.norm(D * s, ord=np.inf)
             if verbose:
-                print(f'iteration = {i}')
-                print(f'|| primal_error|| = {primal_error:.10f}')
-                print(f'|| dual_error|| = {dual_error:.10f}')
+                print(f"iteration = {i}")
+                print(f"|| primal_error|| = {primal_error:.10f}")
+                print(f"|| dual_error|| = {dual_error:.10f}")
 
             x_norm = np.linalg.norm(D * x, ord=np.inf)
             z_norm = np.linalg.norm(D * z, ord=np.inf)
@@ -261,9 +276,17 @@ def solve_box_qp_core(Q, p, A, b, lb, ub, control):
         nu = xv[-n_A:] * E
     else:
         nu = None
-    sol = {"x": x, "z": z, "u": u, "lam": lam, "nu": nu, "rho": rho,
-           "primal_error": primal_error, "dual_error": dual_error,
-           "iter": i}
+    sol = {
+        "x": x,
+        "z": z,
+        "u": u,
+        "lam": lam,
+        "nu": nu,
+        "rho": rho,
+        "primal_error": primal_error,
+        "dual_error": dual_error,
+        "iter": i,
+    }
 
     return sol
 
@@ -278,5 +301,5 @@ def prep_bound(x, n_x, default=None):
     return x
 
 
-def clamp(x, x_min=-float('inf'), x_max=float('inf')):
+def clamp(x, x_min=-float("inf"), x_max=float("inf")):
     return min(max(x, x_min), x_max)

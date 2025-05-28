@@ -19,20 +19,20 @@ class SolveScsQP(nn.Module):
 
 class SolveScsQPLayer(torch.autograd.Function):
     """
-  Autograd function for forward solving and backward differentiating linear constraint QP
-  """
+    Autograd function for forward solving and backward differentiating linear constraint QP
+    """
 
     @staticmethod
     def forward(ctx, Q, p, A, b, G, h, control):
         """
-    SCS algorithm for forward solving box constraint QP
-    """
+        SCS algorithm for forward solving box constraint QP
+        """
 
         # --- forward solve
         sol = torch_solve_qp_scs(Q=Q, p=p, A=A, b=b, G=G, h=h, control=control)
-        x = sol.get('x')
-        lams = sol.get('lams')
-        slacks = sol.get('slacks')
+        x = sol.get("x")
+        lams = sol.get("lams")
+        slacks = sol.get("slacks")
 
         # --- save for backwards:
         ctx.save_for_backward(x, lams, slacks, Q, A, G)
@@ -42,10 +42,12 @@ class SolveScsQPLayer(torch.autograd.Function):
     @staticmethod
     def backward(ctx, dl_dx):
         """
-    Fixed point backward differentiation
-    """
+        Fixed point backward differentiation
+        """
         x, lams, slacks, Q, A, G = ctx.saved_tensors
-        grads = torch_solve_qp_scs_grads(dl_dx, x=x, lams=lams, slacks=slacks, Q=Q, A=A, G=G)
+        grads = torch_solve_qp_scs_grads(
+            dl_dx, x=x, lams=lams, slacks=slacks, Q=Q, A=A, G=G
+        )
         return grads
 
 
@@ -65,6 +67,7 @@ def torch_solve_qp_scs(Q, p, A, b, G, h, control=scs_control()):
     #######################################################################
 
     # --- prep:
+    device = Q.device
     n_batch = Q.shape[0]
     n_x = Q.shape[1]
     n_eq = get_ncon(A, dim=1)
@@ -96,21 +99,24 @@ def torch_solve_qp_scs(Q, p, A, b, G, h, control=scs_control()):
     # --- main loop: sequential
     for i in range(n_batch):
         # ---  populate dicts with data to pass into SCS
-        data = dict(P=scipy.sparse.csc_matrix(Q_a[i, :, :]),
-                    A=scipy.sparse.csc_matrix(Amat_a[i, :, :]),
-                    b=bvec_a[i, :, 0], c=p_a[i, :, 0])
+        data = dict(
+            P=scipy.sparse.csc_matrix(Q_a[i, :, :]),
+            A=scipy.sparse.csc_matrix(Amat_a[i, :, :]),
+            b=bvec_a[i, :, 0],
+            c=p_a[i, :, 0],
+        )
 
         # --- initialize solver
         solver = scs.SCS(data=data, cone=cone, **control)
         sol = solver.solve()
-        x[i, :, 0] = sol.get('x')
-        lams[i, :, 0] = sol.get('y')
-        slacks[i, :, 0] = sol.get('s')
+        x[i, :, 0] = sol.get("x")
+        lams[i, :, 0] = sol.get("y")
+        slacks[i, :, 0] = sol.get("s")
 
     # --- convert to tensor:
-    x = torch.tensor(x)
-    lams = torch.tensor(lams)
-    slacks = torch.tensor(slacks)
+    x = torch.tensor(x, device=device)
+    lams = torch.tensor(lams, device=device)
+    slacks = torch.tensor(slacks, device=device)
 
     # --- make output list:
     out = {"x": x, "lams": lams, "slacks": slacks}
@@ -120,6 +126,7 @@ def torch_solve_qp_scs(Q, p, A, b, G, h, control=scs_control()):
 
 def torch_solve_qp_scs_grads(dl_dx, x, lams, slacks, Q, A, G):
     # --- prep:
+    device = Q.device
     n_batch = Q.shape[0]
     n_x = Q.shape[1]
     dtype = Q.dtype
@@ -139,25 +146,29 @@ def torch_solve_qp_scs_grads(dl_dx, x, lams, slacks, Q, A, G):
 
     # --- M matrix:
     lhs_u = torch.cat((Q, torch.transpose(Amat, 1, 2)), 2)
-    lhs_l = torch.cat((-Amat, torch.zeros(n_batch, n_con, n_con, dtype=dtype)), 2)
+    lhs_l = torch.cat(
+        (-Amat, torch.zeros(n_batch, n_con, n_con, dtype=dtype, device=device)), 2
+    )
     M = torch.cat((lhs_u, lhs_l), 1)
-    I = torch.eye(n_x + n_con, dtype=dtype).unsqueeze(0)
+    I = torch.eye(n_x + n_con, dtype=dtype, device=device).unsqueeze(0)
 
     # --- Derivative of euclidean projection operator:
-    w_y = w[:, (n_x + n_eq):(n_x + n_eq + n_ineq), :]
+    w_y = w[:, (n_x + n_eq) : (n_x + n_eq + n_ineq), :]
     D_w_y = 0.5 * (torch.sign(w_y) + 1)
-    ones = torch.ones((n_batch, n_x + n_eq, 1), dtype=dtype)
+    ones = torch.ones((n_batch, n_x + n_eq, 1), dtype=dtype, device=device)
     D = torch.cat((ones, D_w_y), 1)
 
     # --- Core system of Equations:
-    rhs = torch.cat((-dl_dx, torch.zeros((n_batch, n_con, 1), dtype=dtype)), dim=1)
+    rhs = torch.cat(
+        (-dl_dx, torch.zeros((n_batch, n_con, 1), dtype=dtype, device=device)), dim=1
+    )
     rhs = D * rhs
-    mat = M * torch.transpose(D, 1, 2) - torch.diag_embed(D.squeeze(2)) + I + 10 ** -8 * I
+    mat = M * torch.transpose(D, 1, 2) - torch.diag_embed(D.squeeze(2)) + I + 10**-8 * I
 
     d = torch.linalg.solve(torch.transpose(mat, 1, 2), rhs)
     # --- d:
     dx = d[:, :n_x, :]
-    dy = d[:, n_x:(n_x + n_con), :]
+    dy = d[:, n_x : (n_x + n_con), :]
 
     # --- gradients:
     xt = torch.transpose(x, 1, 2)
