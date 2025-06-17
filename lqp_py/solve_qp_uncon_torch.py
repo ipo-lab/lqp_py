@@ -11,7 +11,7 @@ def torch_solve_qp_uncon(Q, p):
     # Returns: x_star:  A (n_x,1) matrix
     #######################################################################
     x = torch.linalg.solve(Q, -p)
-    sol = {'x': x}
+    sol = {"x": x}
     return sol
 
 
@@ -19,7 +19,7 @@ def torch_solve_qp_uncon_grad(dl_dz, x, Q):
     # --- sol:
     sol = torch_solve_qp_uncon(Q=Q, p=dl_dz)
 
-    dx = sol.get('x')
+    dx = sol.get("x")
     dxt = torch.transpose(dx, 1, 2)
     xt = torch.transpose(x, 1, 2)
 

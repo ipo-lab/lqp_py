@@ -27,15 +27,15 @@ class OptNetLayer(torch.autograd.Function):
         """
         # --- forward solve
         sol = torch_solve_qp_optnet(Q=Q, p=p, A=A, b=b, G=G, h=h, control=control)
-        x = sol.get('x')
-        lams = sol.get('lams')
-        slacks = sol.get('slacks')
-        nus = sol.get('nus')
+        x = sol.get("x")
+        lams = sol.get("lams")
+        slacks = sol.get("slacks")
+        nus = sol.get("nus")
         U_Q = sol.get("U_Q")
         U_S = sol.get("U_S")
 
         # --- save for backwards:
-        ctx.save_for_backward(x, lams, slacks,  nus, U_Q, U_S,  Q, A, G)
+        ctx.save_for_backward(x, lams, slacks, nus, U_Q, U_S, Q, A, G)
 
         return x
 
@@ -47,10 +47,20 @@ class OptNetLayer(torch.autograd.Function):
         x, lams, slacks, nus, U_Q, U_S, Q, A, G = ctx.saved_tensors
         if lams is None:
             grads = torch_solve_qp_eqcon_grad(dl_dz=dl_dz, x=x, nus=nus, Q=Q, A=A)
-            grads = grads + (None, None, None) #G, h and control
+            grads = grads + (None, None, None)  # G, h and control
         else:
-            grads = torch_optnet_grads(dl_dz=dl_dz, x=x, lams=lams, slacks=slacks, nus=nus,
-                                       Q=Q, A=A, G=G, U_Q=U_Q, U_S=U_S)
+            grads = torch_optnet_grads(
+                dl_dz=dl_dz,
+                x=x,
+                lams=lams,
+                slacks=slacks,
+                nus=nus,
+                Q=Q,
+                A=A,
+                G=G,
+                U_Q=U_Q,
+                U_S=U_S,
+            )
         return grads
 
 
@@ -70,14 +80,15 @@ def torch_solve_qp_optnet(Q, p, A, b, G, h, control=optnet_control()):
     #######################################################################
 
     # --- unpacking control:
-    max_iters = control.get('max_iters', 1000)
-    tol = control.get('tol', 0.001)
-    check_solved = control.get('check_solved', 1)
-    verbose = control.get('verbose', False)
-    reduce = control.get('reduce', 'mean')
-    int_reg = control.get('int_reg', 10 ** -6)
+    max_iters = control.get("max_iters", 1000)
+    tol = control.get("tol", 0.001)
+    check_solved = control.get("check_solved", 1)
+    verbose = control.get("verbose", False)
+    reduce = control.get("reduce", "mean")
+    int_reg = control.get("int_reg", 10**-6)
 
     # --- prep:
+    device = Q.device
     dtype = Q.dtype
     n_batch = Q.shape[0]
     n_eq = get_ncon(A, dim=1)
@@ -94,13 +105,15 @@ def torch_solve_qp_optnet(Q, p, A, b, G, h, control=optnet_control()):
         U_Q, U_S, R = optnet_pre_factor_kkt(Q=Q, G=G, A=A)
 
         # --- initialize:
-        x, s, z, y = optnet_init(Q=Q, p=p, G=G, h=h, A=A, b=b, U_Q=U_Q, U_S=U_S, R=R, int_reg=int_reg)
+        x, s, z, y = optnet_init(
+            Q=Q, p=p, G=G, h=h, A=A, b=b, U_Q=U_Q, U_S=U_S, R=R, int_reg=int_reg
+        )
 
         # --- loop prep:
         GT = torch.transpose(G, 1, 2)
         if any_eq:
             AT = torch.transpose(A, 1, 2)
-        one_step = torch.ones((n_batch, 1), dtype=dtype)
+        one_step = torch.ones((n_batch, 1), dtype=dtype, device=device)
         # --- main loop:
         for i in range(max_iters):
             # --- rhs:
@@ -115,18 +128,20 @@ def torch_solve_qp_optnet(Q, p, A, b, G, h, control=optnet_control()):
                 if i % check_solved == 0:
                     mu = torch.sum(s * z, dim=1) / n_ineq
                     # -- norm scaling here?
-                    prim_resid = torch.linalg.norm(ry, dim=1) + torch.linalg.norm(rz, dim=1)
+                    prim_resid = torch.linalg.norm(ry, dim=1) + torch.linalg.norm(
+                        rz, dim=1
+                    )
                     dual_resid = torch.linalg.norm(rx, dim=1)
                     resid = (prim_resid + dual_resid) / 2 + mu
 
                     # ---- stopping tolerances:
-                    if reduce == 'mean':
+                    if reduce == "mean":
                         error = resid.mean()
                     else:
                         error = resid.max()
                     if verbose:
-                        print('iteration = {:d}'.format(i))
-                        print('duality gap = {:f}'.format(error.item()))
+                        print("iteration = {:d}".format(i))
+                        print("duality gap = {:f}".format(error.item()))
 
                     do_stop = error < tol and i > 0
                     if do_stop:
@@ -135,15 +150,18 @@ def torch_solve_qp_optnet(Q, p, A, b, G, h, control=optnet_control()):
                 d = z / s
 
                 # ---- factorization
-                U_S = optnet_factor_kkt(U_S=U_S, R=R, d=d, n_eq=n_eq, n_ineq=n_ineq, int_reg=int_reg)
+                U_S = optnet_factor_kkt(
+                    U_S=U_S, R=R, d=d, n_eq=n_eq, n_ineq=n_ineq, int_reg=int_reg
+                )
 
                 # ---- affine step
-                aff_sol = torch_qp_int_solve_kkt(U_Q=U_Q, d=d, G=G, A=A, U_S=U_S,
-                                                 rx=rx, rs=rs, rz=rz, ry=ry)
-                dx_aff = aff_sol.get('dx')
-                ds_aff = aff_sol.get('ds')
-                dz_aff = aff_sol.get('dz')
-                dy_aff = aff_sol.get('dy')
+                aff_sol = torch_qp_int_solve_kkt(
+                    U_Q=U_Q, d=d, G=G, A=A, U_S=U_S, rx=rx, rs=rs, rz=rz, ry=ry
+                )
+                dx_aff = aff_sol.get("dx")
+                ds_aff = aff_sol.get("ds")
+                dz_aff = aff_sol.get("dz")
+                dy_aff = aff_sol.get("dy")
 
                 # compute centering directions
                 z_step = torch_qp_int_get_step(z, dz_aff)
@@ -155,20 +173,31 @@ def torch_solve_qp_optnet(Q, p, A, b, G, h, control=optnet_control()):
 
                 s_plus_step = s + alpha * ds_aff
                 z_plus_step = z + alpha * dz_aff
-                sig = (torch.sum(s_plus_step * z_plus_step, 1) / (torch.sum(s * z, 1))) ** 3
+                sig = (
+                    torch.sum(s_plus_step * z_plus_step, 1) / (torch.sum(s * z, 1))
+                ) ** 3
 
                 mu_sig = -mu * sig
                 mu_sig = mu_sig.unsqueeze(2)
 
                 non_zero = (mu_sig + ds_aff * dz_aff) / s
-                cor_sol = torch_qp_int_solve_kkt(U_Q=U_Q, d=d, G=G, A=A, U_S=U_S,
-                                                 rx=rx * 0, rs=non_zero, rz=rz * 0, ry=ry * 0)
+                cor_sol = torch_qp_int_solve_kkt(
+                    U_Q=U_Q,
+                    d=d,
+                    G=G,
+                    A=A,
+                    U_S=U_S,
+                    rx=rx * 0,
+                    rs=non_zero,
+                    rz=rz * 0,
+                    ry=ry * 0,
+                )
 
-                dx = dx_aff + cor_sol.get('dx')
-                ds = ds_aff + cor_sol.get('ds')
-                dz = dz_aff + cor_sol.get('dz')
+                dx = dx_aff + cor_sol.get("dx")
+                ds = ds_aff + cor_sol.get("ds")
+                dz = dz_aff + cor_sol.get("dz")
                 if any_eq:
-                    dy = dy_aff + cor_sol.get('dy')
+                    dy = dy_aff + cor_sol.get("dy")
                 else:
                     dy = None
 
@@ -187,14 +216,23 @@ def torch_solve_qp_optnet(Q, p, A, b, G, h, control=optnet_control()):
 
         # --- final factorization:
         d = z / s
-        U_S = optnet_factor_kkt(U_S=U_S, R=R, d=d, n_eq=n_eq, n_ineq=n_ineq, int_reg=int_reg)
-        lams = torch.clamp(z, 10 ** -8)
-        slacks = torch.clamp(s, 10 ** -8)
+        U_S = optnet_factor_kkt(
+            U_S=U_S, R=R, d=d, n_eq=n_eq, n_ineq=n_ineq, int_reg=int_reg
+        )
+        lams = torch.clamp(z, 10**-8)
+        slacks = torch.clamp(s, 10**-8)
         if any_eq:
             nus = y
         else:
             nus = None
-        sol = {"x": x, "lams": lams, "slacks": slacks, "nus": nus, "U_Q":U_Q, "U_S":U_S}
+        sol = {
+            "x": x,
+            "lams": lams,
+            "slacks": slacks,
+            "nus": nus,
+            "U_Q": U_Q,
+            "U_S": U_S,
+        }
 
     return sol
 
@@ -241,8 +279,9 @@ def optnet_pre_factor_kkt(Q, G, A):
     return U_Q, U_S, R
 
 
-def optnet_init(Q, p, A, b, G, h, U_Q, U_S, R, int_reg=10 ** -6):
+def optnet_init(Q, p, A, b, G, h, U_Q, U_S, R, int_reg=10**-6):
     # --- prep:
+    device = Q.device
     n_batch = Q.shape[0]
     dtype = Q.dtype
     n_eq = get_ncon(A, dim=1)
@@ -250,24 +289,27 @@ def optnet_init(Q, p, A, b, G, h, U_Q, U_S, R, int_reg=10 ** -6):
     n_ineq = get_ncon(G, dim=1)
 
     # --- rhs:
-    d = torch.ones((n_batch, n_ineq, 1), dtype=dtype)
+    d = torch.ones((n_batch, n_ineq, 1), dtype=dtype, device=device)
     rx = p
     rz = -h
     if any_eq:
         ry = -b
-    rs = torch.zeros((n_batch, n_ineq, 1), dtype=dtype)
+    rs = torch.zeros((n_batch, n_ineq, 1), dtype=dtype, device=device)
 
     # --- factor:
-    U_S = optnet_factor_kkt(U_S=U_S, R=R, d=d, n_eq=n_eq, n_ineq=n_ineq, int_reg=int_reg)
+    U_S = optnet_factor_kkt(
+        U_S=U_S, R=R, d=d, n_eq=n_eq, n_ineq=n_ineq, int_reg=int_reg
+    )
 
     # --- solve:
-    kkt_sol = torch_qp_int_solve_kkt(U_Q=U_Q, d=d, G=G, A=A,
-                                     U_S=U_S, rx=rx, rs=rs, rz=rz, ry=ry)
+    kkt_sol = torch_qp_int_solve_kkt(
+        U_Q=U_Q, d=d, G=G, A=A, U_S=U_S, rx=rx, rs=rs, rz=rz, ry=ry
+    )
 
-    x = kkt_sol.get('dx')
-    s = kkt_sol.get('ds')
-    z = kkt_sol.get('dz')
-    y = kkt_sol.get('dy')
+    x = kkt_sol.get("dx")
+    s = kkt_sol.get("ds")
+    z = kkt_sol.get("dz")
+    y = kkt_sol.get("dy")
 
     # --- set lambdas and slacks positive:
     min_s = torch.min(s, 1).values
@@ -278,15 +320,16 @@ def optnet_init(Q, p, A, b, G, h, U_Q, U_S, R, int_reg=10 ** -6):
     return x, s, z, y
 
 
-def optnet_factor_kkt(U_S, R, d, n_eq, n_ineq, int_reg=10 ** -6):
+def optnet_factor_kkt(U_S, R, d, n_eq, n_ineq, int_reg=10**-6):
+    device = U_S.device
     dtype = U_S.dtype
     n_batch = U_S.shape[0]
-    zeros = torch.zeros(n_batch, n_ineq, n_eq, dtype=dtype)
+    zeros = torch.zeros(n_batch, n_ineq, n_eq, dtype=dtype, device=device)
 
     # --- update U_S for d:
     d_diag = torch.diag_embed(1 / d.squeeze(2))
 
-    reg = torch.eye(n_ineq, dtype=dtype).unsqueeze(0)
+    reg = torch.eye(n_ineq, dtype=dtype, device=device).unsqueeze(0)
     mat = torch.linalg.cholesky(R + d_diag + int_reg * reg, upper=True)
     mat = torch.cat((zeros, mat), dim=2)
 
@@ -316,7 +359,11 @@ def torch_qp_int_solve_kkt(U_Q, d, G, A, U_S, rx, rs, rz, ry):
 
     # --- g1:
     if any_eq:
-        w_idx = w[:, :n_eq, :, ]
+        w_idx = w[
+            :,
+            :n_eq,
+            :,
+        ]
         w_n_idx = w[:, n_eq:n_con, :]
         g1 = -rx - torch.matmul(GT, w_n_idx)
         g1 = g1 - torch.matmul(AT, w_idx)
@@ -348,6 +395,7 @@ def torch_qp_int_get_step(v, dv):
 
 def torch_optnet_grads(dl_dz, x, lams, slacks, nus, Q, A, G, U_Q, U_S):
     # --- prep:
+    device = Q.device
     dtype = Q.dtype
     n_batch = Q.shape[0]
     n_eq = get_ncon(A, dim=1)
@@ -357,20 +405,21 @@ def torch_optnet_grads(dl_dz, x, lams, slacks, nus, Q, A, G, U_Q, U_S):
 
     # --- solve system
     rx = dl_dz
-    rs = torch.zeros(n_batch, n_ineq, 1, dtype=dtype)
-    rz = torch.zeros(n_batch, n_ineq, 1, dtype=dtype)
+    rs = torch.zeros(n_batch, n_ineq, 1, dtype=dtype, deveice=device)
+    rz = torch.zeros(n_batch, n_ineq, 1, dtype=dtype, device=device)
     if any_eq:
-        ry = torch.zeros(n_batch, n_eq, 1, dtype=dtype)
+        ry = torch.zeros(n_batch, n_eq, 1, dtype=dtype, device=device)
 
     d = lams / slacks
 
     # --- solve kkt system
-    diff_list = torch_qp_int_solve_kkt(U_Q=U_Q, d=d, G=G, A=A, U_S=U_S,
-                                       rx=rx, rs=rs, rz=rz, ry=ry)
-    dx = diff_list.get('dx')
-    #ds = diff_list.get('ds')
-    dlam = diff_list.get('dz')
-    dnu = diff_list.get('dy')
+    diff_list = torch_qp_int_solve_kkt(
+        U_Q=U_Q, d=d, G=G, A=A, U_S=U_S, rx=rx, rs=rs, rz=rz, ry=ry
+    )
+    dx = diff_list.get("dx")
+    # ds = diff_list.get('ds')
+    dlam = diff_list.get("dz")
+    dnu = diff_list.get("dy")
 
     # --- As per Amos page 5, diff_list$dz = d_lam_tilde = D(lambdas)d_lambda
     dlam = dlam / lams
@@ -378,7 +427,7 @@ def torch_optnet_grads(dl_dz, x, lams, slacks, nus, Q, A, G, U_Q, U_S):
     # --- compute gradients
     # --- some prep:
     xt = torch.transpose(x, 1, 2)
-    dxt = torch.transpose(dx,1,2)
+    dxt = torch.transpose(dx, 1, 2)
 
     # --- dl_dp
     dl_dp = dx
@@ -405,5 +454,3 @@ def torch_optnet_grads(dl_dz, x, lams, slacks, nus, Q, A, G, U_Q, U_S):
     # --- out list of grads
     grads = (dl_dQ, dl_dp, dl_dA, dl_db, dl_dG, dl_dh, None)
     return grads
-
-

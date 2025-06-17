@@ -22,14 +22,14 @@ lb = -torch.ones(n_batch, n_x, 1, requires_grad=True)
 ub = torch.ones(n_batch, n_x, 1, requires_grad=True)
 
 # --- QP solver
-control = box_qp_control(eps_rel=tol, eps_abs=tol, verbose=True, reduce='max')
+control = box_qp_control(eps_rel=tol, eps_abs=tol, verbose=True, reduce="max")
 QP = SolveBoxQP(control=control)
 
 # --- Forward
 start = time.time()
 x = QP.forward(Q=Q, p=p, A=A, b=b, lb=lb, ub=ub)
 end = time.time() - start
-print('computation time: {:f}'.format(end))
+print("computation time: {:f}".format(end))
 
 # --- Backward
 dl_dz = torch.ones((n_batch, n_x, 1))
@@ -37,18 +37,20 @@ dl_dz = torch.ones((n_batch, n_x, 1))
 start = time.time()
 test = x.backward(dl_dz)
 end = time.time() - start
-print('computation time: {:f}'.format(end))
+print("computation time: {:f}".format(end))
 
 
 # --- QP solver: KKT
-control = box_qp_control(eps_rel=tol, eps_abs=tol, verbose=True, reduce='max', backward='kkt')
+control = box_qp_control(
+    eps_rel=tol, eps_abs=tol, verbose=True, reduce="max", backward="kkt"
+)
 QP = SolveBoxQP(control=control)
 
 # --- Forward
 start = time.time()
 x = QP.forward(Q=Q, p=p, A=A, b=b, lb=lb, ub=ub)
 end = time.time() - start
-print('computation time: {:f}'.format(end))
+print("computation time: {:f}".format(end))
 
 # --- Backward
 dl_dz = torch.ones((n_batch, n_x, 1))
@@ -56,18 +58,20 @@ dl_dz = torch.ones((n_batch, n_x, 1))
 start = time.time()
 test = x.backward(dl_dz)
 end = time.time() - start
-print('computation time: {:f}'.format(end))
+print("computation time: {:f}".format(end))
 
 
 # --- QP solver: unroll
-control = box_qp_control(eps_rel=tol, eps_abs=tol, verbose=True, reduce='max', unroll=True)
+control = box_qp_control(
+    eps_rel=tol, eps_abs=tol, verbose=True, reduce="max", unroll=True
+)
 QP = SolveBoxQP(control=control)
 
 # --- Forward
 start = time.time()
 x = QP.forward(Q=Q, p=p, A=A, b=b, lb=lb, ub=ub)
 end = time.time() - start
-print('computation time: {:f}'.format(end))
+print("computation time: {:f}".format(end))
 
 # --- Backward
 dl_dz = torch.ones((n_batch, n_x, 1))
@@ -75,4 +79,4 @@ dl_dz = torch.ones((n_batch, n_x, 1))
 start = time.time()
 test = x.backward(dl_dz)
 end = time.time() - start
-print('computation time: {:f}'.format(end))
+print("computation time: {:f}".format(end))

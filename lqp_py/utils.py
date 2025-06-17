@@ -11,7 +11,7 @@ def make_matrix(x):
     return x
 
 
-def get_ncon(x,dim=0):
+def get_ncon(x, dim=0):
     if x is None:
         n_con = 0
     else:
@@ -23,7 +23,7 @@ def get_ncon(x,dim=0):
 def torch_qp_eqcon_mat(Q, A, bottom_right=None):
     if bottom_right is None:
         A_size = A.shape
-        bottom_right = torch.zeros((A_size[0], A_size[1], A_size[1]))
+        bottom_right = torch.zeros((A_size[0], A_size[1], A_size[1]), device=A.device)
     AT = torch.transpose(A, 1, 2)
     lhs_u = torch.cat((Q, AT), 2)
     lhs_l = torch.cat((A, bottom_right), 2)
