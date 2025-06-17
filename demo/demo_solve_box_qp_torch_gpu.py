@@ -12,7 +12,7 @@ torch.manual_seed(0)
 n_x = 500
 n_batch = 128
 n_samples = 2 * n_x
-L = torch.randn(n_batch, n_samples, n_x)
+L = torch.randn(n_batch, n_samples, n_x).to(device)
 
 Q = torch.matmul(torch.transpose(L, 1, 2), L)
 Q = Q / n_samples
