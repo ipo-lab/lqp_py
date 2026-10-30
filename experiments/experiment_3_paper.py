@@ -93,7 +93,7 @@ y_is = torch.tensor(y_is_df.values, dtype=dtype)
 y_oos = torch.tensor(y_oos_df.values, dtype=dtype)
 
 # --- models:
-model_names = ['ADMM']#, 'OptNet']
+model_names = ['ADMM', 'OptNet']
 
 # --- set models:
 control_fp = box_qp_control(max_iters=10_000, eps_rel=tol, eps_abs=tol, rho=None, adaptive_rho=False, scale=True,
@@ -196,7 +196,7 @@ for i in range(n_sims):
 
 
 # --- Make the plots:
-file_name = 'images_paper/exp_3_dz_runtime.pdf'
+file_name = 'images_paper/exp_3_runtime.pdf'
 plot_profile_bars(backward_times, forward_times, total_times, n_sims, fontsize=8, logy=True)
 plt.savefig(file_name)
 
@@ -227,7 +227,7 @@ z = torch.clamp_min(z, 0.0)
 z = z / z.sum(dim=1).unsqueeze(1)
 r = (z * y_oos).sum(dim=1)
 r_ols = pd.Series(r.detach().numpy(), index=x_oos_df.index)
-print(r_ols.mean()/r_ols.std()*annual_factor)
+
 # --- IPO results
 r_admm=rets_oos.filter(like='ADMM', axis=1).mean(axis=1)
 r_optnet=rets_oos.filter(like='OptNet', axis=1).mean(axis=1)
@@ -236,3 +236,5 @@ results_oos.columns = ['Equal Weight', "OLS", "ADMM", "OptNet"]
 sr = results_oos.mean()/results_oos.std()*annual_factor
 results_oos.columns = [f"{col} (Sharpe={round(float(sr[col]),3)})" for col in results_oos.columns]
 results_oos.cumsum().plot(figsize=(10,5))
+file_name = 'images_paper/exp_3_eq.pdf'
+plt.savefig(file_name)
