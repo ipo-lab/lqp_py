@@ -67,13 +67,13 @@ y_hat_ols_is = x_is_df.values.dot(beta_ols)
 y_hat_ols_oos = x_oos_df.values.dot(beta_ols)
 
 
-# --- Compute the covariance matrix -- simple in-sample estimate
+# --- Define the objective inputs:
 Q_is = torch.tensor(covar_is, dtype=dtype)
 Q_oos = torch.tensor(covar_oos, dtype=dtype)
 p_is = torch.zeros(size=[n_batch, n, 1], dtype=dtype)
 p_oos = torch.zeros(size=[n_oos, n, 1], dtype=dtype)
 
-# Constraint set:
+# Define the Constraint set inputs:
 # A is dynamic:
 b_is = torch.ones(size=[n_batch, 1, 1], dtype=dtype)
 b_oos = torch.ones(size=[n_oos, 1, 1],dtype=dtype)
