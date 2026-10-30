@@ -206,7 +206,7 @@ loss_mean = loss_sma.groupby(axis=1, level=0).mean()
 loss_error = loss_sma.groupby(axis=1, level=0).std()
 loss_error = loss_error / n_sims ** 0.5
 color2 = ["#0000EE", "#CD3333"]
-loss_mean.plot.line(ylabel='Normalized QP Loss', xlabel='Epoch', color=color2, linewidth=4)  # title=title
+loss_mean.plot.line(ylabel='Sharpe Ratio Loss', xlabel='Epoch', color=color2, linewidth=4)  # title=title
 plt.fill_between(np.arange(n_epochs), loss_mean['ADMM'] - 2 * loss_error['ADMM'],
                  loss_mean['ADMM'] + 2 * loss_error['ADMM'], alpha=0.25, color=color2[0])
 plt.fill_between(np.arange(n_epochs), loss_mean['OptNet'] - 2 * loss_error['OptNet'],
@@ -233,8 +233,9 @@ r_admm=rets_oos.filter(like='ADMM', axis=1).mean(axis=1)
 r_optnet=rets_oos.filter(like='OptNet', axis=1).mean(axis=1)
 results_oos = pd.concat([r_ew, r_ols, r_admm, r_optnet],axis=1)
 results_oos.columns = ['Equal Weight', "OLS", "ADMM", "OptNet"]
+results_oos = results_oos/scale_factor
 sr = results_oos.mean()/results_oos.std()*annual_factor
 results_oos.columns = [f"{col} (Sharpe={round(float(sr[col]),3)})" for col in results_oos.columns]
-results_oos.cumsum().plot(figsize=(10,5))
+((1 + results_oos).cumprod() - 1.).plot(figsize=(10,5))
 file_name = 'images_paper/exp_3_eq.pdf'
 plt.savefig(file_name)
