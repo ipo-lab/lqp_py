@@ -2,6 +2,8 @@ import numpy as np
 import pandas as pd
 import torch
 import matplotlib.pyplot as plt
+from pathlib import Path
+from typing import Tuple
 
 
 def plot_profile_bars(backward_times, forward_times, total_times, n_sims,  **kwargs):
@@ -129,3 +131,19 @@ def generate_random_A(n_x, prob):
         A[i, :] = a
 
     return A
+
+def load_data(dir_root: str = "~/") -> Tuple[pd.DataFrame, pd.DataFrame]:
+    dir_root = Path(dir_root).expanduser()
+    data_ff = pd.read_csv(Path(dir_root, 'data_ff_5_prices.csv'), header=0, index_col=0, parse_dates=True)
+    data_stk = pd.read_csv(Path(dir_root, 'data_stock_prices.csv'), header=0, index_col=0, parse_dates=True)
+
+    # --- align dates and resample
+    data_ff = pd.DataFrame(data_ff, index=data_stk.index)
+    data_ff = data_ff.resample("W").last()
+    data_stk = data_stk.resample("W").last()
+    # --- compute returns and return x, y
+    x = data_ff.pct_change().dropna()
+    y = data_stk.pct_change().dropna()
+
+    return x, y
+
